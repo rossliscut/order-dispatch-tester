@@ -126,6 +126,8 @@ class M4Adapter(DispatcherAdapter):
         if order.get("vehicle"): o["expectedRobotNames"] = [order["vehicle"]]
         if (order.get("group") or "").strip(): o["expectedRobotGroups"] = [order["group"].strip()]
         if (order.get("label") or "").strip(): o["externalId"] = order["label"].strip()
+        if order.get("containerTypeName"): o["containerTypeName"] = order["containerTypeName"]
+        if isinstance(order.get("containerDir"), (int, float)): o["containerDir"] = float(order["containerDir"])
         return o
 
     # ------------------------------------------------------------ http

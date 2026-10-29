@@ -19,6 +19,17 @@ class StationListReadOnlyTest(unittest.TestCase):
             for k in ("st.pick", "st.emptySel", "st.selOnly"): self.assertTrue(d.get(k), (l, k))
 
 class M4UiTest(unittest.TestCase):
+    def test_m4_container_options(self):
+        html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
+        js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
+        self.assertRegex(html, r"<span class=m4-only[^\n]*id=ctype[^\n]*id=cdir")  # both inputs inside the M4-only span
+        self.assertIn("body:not(.is-m4) .m4-only{display:none}", html)
+        self.assertIn("classList.toggle('is-m4',m)", js)  # adapterUi toggles visibility like no-vs for variableShape
+        self.assertIn("containerTypeName:$('ctype')", js); self.assertIn("containerDir:$('cdir')", js)
+        for l in ("zh", "en"):
+            d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
+            for k in ("disp.ctype", "disp.cdir", "disp.containerTip"): self.assertTrue(d.get(k), (l, k))
+
     def test_m4_fields_and_i18n(self):
         html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
         self.assertIn("id=m4appkey type=password", html); self.assertIn("id=m4pass type=password", html)

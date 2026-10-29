@@ -147,6 +147,7 @@ button:active{transform:translateY(1px)}
 #tpl_side .bar{padding:6px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px;background:var(--surface)}
 #tpl_main{flex:1;min-width:0}
 #steps.no-vs .vs-col{display:none}
+body:not(.is-m4) .m4-only{display:none}
 #steps tr.om-bin .stargs,#steps tr.om-bin .argerr{display:none}
 #steps tr.om-bin td.stargs-td::after{content:"—";color:var(--muted);font-size:12px}
 #cfg_main{min-width:0}
@@ -228,6 +229,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--accent-hover)}
 </div></fieldset>
 <fieldset class=sub data-sub=gen><legend data-i18n=disp.legend></legend><span data-i18n=disp.group></span> <select id=grp data-i18n-title=disp.groupTip><option value="" data-i18n=disp.none></option></select> <span data-i18n=disp.veh></span> <input id=veh data-i18n-ph=disp.vehPh size=14> <span data-i18n=disp.pri></span> <input id=pri type=number value=1>
  <span data-i18n=disp.label></span> <input id=label size=14 placeholder="empty-pallet">
+ <span class=m4-only data-i18n-title=disp.containerTip><span data-i18n=disp.ctype></span> <input id=ctype size=12> <span data-i18n=disp.cdir></span> <input id=cdir size=6 placeholder="0"></span>
  <label data-i18n-title=disp.bbbTip><input type=checkbox id=bbb> <span data-i18n=disp.bbb></span></label> <span data-i18n=disp.bbbPoll></span> <input id=bbb_poll type=number value=1 min=0.2 step=0.1 style="width:4em">
 
  <div class=row><div><span data-i18n=disp.preov></span><br><textarea id=pre_ov rows=4 cols=40 placeholder="AP12=LM12&#10;AP13=LM13|LM14" oninput="renderPool();renderSt();prevLater()"></textarea><div id=pre_err class=err style="white-space:pre-line"></div></div><div><span id=pre_info></span></div></div>

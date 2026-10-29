@@ -218,6 +218,7 @@
 ### M4 适配器的映射
 - RDS 运单 = M4 运单；RDS 动作块 = M4 步骤（步骤 `id` = 运单号 + 动作块后缀，与 RDS blockId 相同）；RDS `complete` = M4 `stepFixed`（封口）。
 - 普通下发：`POST /api/fleet/orders/create`，带全部步骤，`stepFixed: true`。指定车辆、机器人组分别对应 `expectedRobotNames` / `expectedRobotGroups`，label(可选) 对应 `externalId`。
+- 容器类型 / 容器方向（仅 M4，「派单参数」里只在 M4 时显示）：对应 `CreateOrderReq` 的 `containerTypeName` / `containerDir`（放置容器的方向，弧度），留空则不带该字段。M4 用场景里该容器类型的尺寸计算机器人带货时的占位，作用类似 RDS 的 `variableShape`，但 M4 是按运单设置、不是按步骤；容器类型须先在 M4「场景编辑 → 容器类型」中配置。
 - 逐块下发：创建时只带第一个步骤且 `stepFixed: false`；上一个步骤 `Done` 后用 `POST /api/fleet/orders/add-steps` 追加下一个；最后用 `POST /api/fleet/orders/complete-order` 封口。
 - 状态通过 `GET /api/fleet/orders/query-order-detail` 按"轮询间隔（秒）"和"逐块轮询（秒）"轮询，与 RDS 相同（不使用回调）。状态以本工具的 RDS 风格名称显示：
 

@@ -66,6 +66,22 @@ class AdapterTest(Base):
         ad.configure(dict(C.m4_profile(), opMode="operation"))
         self.assertEqual(ad.build_step({"id": "o"}, dict(st, args={}))["rbkArgs"], {"operation": "ForkLoad"})
 
+    def test_container_type_and_dir(self):
+        # CreateOrderReq containerTypeName / containerDir (radians) from the dispatch options
+        rec = self.draft("m4-ct1", cfg={"containerTypeName": " P1200 ", "containerDir": "1.5708"}); b = rec["body"]
+        self.assertEqual(b["containerTypeName"], "P1200"); self.assertAlmostEqual(b["containerDir"], 1.5708)
+        ok, err = C.AD().submit(b); self.assertTrue(ok, err)
+        with fake_m4.LOCK: got = dict(fake_m4.RECEIVED[-1])
+        self.assertEqual((got["containerTypeName"], got["containerDir"]), ("P1200", 1.5708))
+        for cfg in ({}, {"containerTypeName": "", "containerDir": ""}, {"containerTypeName": "  ", "containerDir": None}):
+            b = self.draft("m4-ct-empty%d" % len(cfg), cfg=cfg)["body"]
+            self.assertNotIn("containerTypeName", b); self.assertNotIn("containerDir", b)
+        self.assertEqual(self.draft("m4-ct0", cfg={"containerDir": 0})["body"]["containerDir"], 0.0)  # 0 rad is a valid direction
+        with self.assertRaises(ValueError): C.make_draft({"start": "AP1", "end": "AP2"}, self.t, {"containerDir": "abc"}, "m4-ctbad")
+        C.save_settings({"adapter": "rds"}); C.set_adapter("rds"); C.S["prepoints"] = dict(PREPOINTS)  # RDS has no such fields
+        b =C.make_draft({"start": "AP1", "end": "AP2"}, self.t, {"containerTypeName": "P1200", "containerDir": 1}, "rds-ct")["body"]
+        self.assertNotIn("containerTypeName", json.dumps(b)); self.assertNotIn("containerDir", json.dumps(b))
+
     def test_mixed_opmode_in_one_order(self):
         ad = C.AD()
         steps = [

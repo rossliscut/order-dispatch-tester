@@ -217,6 +217,7 @@ The app key and password are stored only in the local, gitignored `settings.json
 ### How the M4 adapter maps things
 - RDS order = M4 transport order; RDS block = M4 step (step `id` = order ID + block suffix, same as the RDS blockId); RDS `complete` = M4 `stepFixed`.
 - Normal send: `POST /api/fleet/orders/create` with all steps and `stepFixed: true`. **Vehicle** (指定车辆) and **Robot group** (机器人组) become `expectedRobotNames` / `expectedRobotGroups`, and **label (optional)** (label(可选)) becomes `externalId`.
+- **Container type** / **container dir (rad)** (容器类型 / 容器方向, M4 only; shown in the dispatch options only when M4 is selected) become `containerTypeName` / `containerDir` of `CreateOrderReq` (container placement direction, radians); empty fields are not sent. M4 uses that container type's size from the scene for the robot's loaded footprint, similar in purpose to RDS `variableShape`, but M4 sets it per order rather than per step. Define the container type first in M4 scene editing → Container Type.
 - **Block-by-block** (逐块下发): create with only the first step and `stepFixed: false`, then `POST /api/fleet/orders/add-steps` for each next step once the previous step is `Done`, then `POST /api/fleet/orders/complete-order` to seal the order.
 - Status is polled with `GET /api/fleet/orders/query-order-detail` at **Poll interval (s)** and **Block poll (s)**, the same as RDS (no callbacks). States are shown in the tool's RDS-style names:
 

@@ -49,7 +49,7 @@ async function initSettings(){let st=null,fromLocal=false;try{st=await (await fe
  applySettings(st);await loadTemplates(st&&st.activeTemplate);loaded=true;renderPool();renderSt();showTab($('tab').value||'cfg');$('geominfo').textContent=t('map.needScene');let cached=false;try{let r=await (await fetch('/api/scene_geom?cached=1')).json();if(r.ok&&!r.sceneErr&&r.stations&&r.stations.length){setScene(r.stations);setGeom(r);cached=true;$('info').textContent=sceneAt()}}catch(e){}
  if(!cached&&poolNames().some(r=>(pools[r]||[]).length))ensureScene(true).then(ok=>{if(ok){$('info').textContent=t('msg.loadedScene',{n:allSt.length});renderPool();renderSt();prevLater()}});
  document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.id&&NOSAVE.has(e.id))return;if(e.closest('#steps')||e.closest('#srv_side'))return;e.addEventListener('input',saveLater);e.addEventListener('change',saveLater)});
- ['grp','veh','pri','label'].forEach(i=>{$(i).addEventListener('input',prevLater);$(i).addEventListener('change',prevLater)});
+ ['grp','veh','pri','label','ctype','cdir'].forEach(i=>{$(i).addEventListener('input',prevLater);$(i).addEventListener('change',prevLater)});
  $('info').textContent=[st&&Object.keys(st).length?(fromLocal?t('msg.fromLocal'):t('msg.loaded')):'',sceneAt()].filter(Boolean).join(' · ');if(fromLocal)saveNow()}
 async function saveCfg(){let st=collect();try{localStorage.setItem(lsKey(),JSON.stringify(st));localStorage.setItem('odtSettings',JSON.stringify(st))}catch(e){}
  let body={pollSec:st.pollSec,settings:Object.assign({},st)};if(isM4()){delete body.settings.base;await persistDispatcherUrl()}else body.base=st.base;
@@ -321,7 +321,7 @@ C.onmouseup=e=>{if(drag&&!drag.m&&$('ly_st').checked){let best=null,bd=144;for(c
 C.onmouseleave=()=>drag=null;
 C.onwheel=e=>{e.preventDefault();let f=e.deltaY<0?1.2:1/1.2;view.ox=e.offsetX-(e.offsetX-view.ox)*f;view.oy=e.offsetY-(e.offsetY-view.oy)*f;view.s*=f;draw()};
 // ---------------- generate / drafts ----------------
-function dispCfg(){return {base:$('base').value,vehicle:$('veh').value.trim(),group:$('grp').value,priority:+$('pri').value,label:$('label').value.trim(),preOverrides:preOvParse().m,preOverridesText:$('pre_ov').value}}
+function dispCfg(){return {base:$('base').value,vehicle:$('veh').value.trim(),group:$('grp').value,priority:+$('pri').value,label:$('label').value.trim(),...(isM4()?{containerTypeName:$('ctype').value.trim(),containerDir:$('cdir').value.trim()}:{}),preOverrides:preOvParse().m,preOverridesText:$('pre_ov').value}}
 function incTag(o){let c=o.inc;if(!c||typeof c!='object')return '';let col=c.status=='done'?'#2a7':c.status=='stopped'?'#c33':c.warn?'#e67e00':'#06c',tip=[t('inc.'+c.status),c.reason||'',c.warn||'',c.lastErr||'',c.resumed?t('inc.resumed'):''].filter(Boolean).join('\n');
  return ` <span style="background:#eef;color:${col};padding:0 3px;font-size:11px" title="${esc(tip)}">${t('inc.tag')} ${c.sent}/${c.total}${c.status=='stopped'?' '+t('inc.stopped')+(c.reason?': '+esc(c.reason):''):c.status=='done'?' ✓':c.warn?' '+t('inc.waiting')+': '+esc(c.warn):''}</span>`}
 async function generate(){if(dirty&&!(await saveTpl()))return;{let pe=preOvParse().errs;if(pe.length){alert(pe.join('\n'));return}}let roles=cur.pools||[];
@@ -527,7 +527,7 @@ function m4SetScene(id,name){let sel=$('m4scenes');if(!sel)return;id=id||'';
 function m4NormAuth(p){p=p||{};let a=p.auth;if(a==='appkey'||a==='login')return a;return (p.appId&&p.appKey)?'appkey':'login'}
 function m4AuthUi(){let a=$('m4auth').value==='appkey'?'appkey':'login';$('m4auth').value=a;
  $('m4authKey').style.display=a==='appkey'?'':'none';$('m4authLogin').style.display=a==='login'?'':'none'}
-function adapterUi(){let m=$('adsel').value==='m4';let tbl=$('steps');if(tbl)tbl.classList.toggle('no-vs',m);if(cur)renderSteps()}
+function adapterUi(){let m=$('adsel').value==='m4';document.body.classList.toggle('is-m4',m);let tbl=$('steps');if(tbl)tbl.classList.toggle('no-vs',m);if(cur)renderSteps()}
 function m4OpUi(){adapterUi()}
 function m4Show(n){n=n||m4ActiveName();let p=(M4P.profiles||{})[n]||{};if(p.base)$('base').value=p.base;m4SetScene(p.sceneId||'', p.sceneName||'');$('m4auth').value=m4NormAuth(p);
  $('m4appid').value=p.appId||'';$('m4appkey').value=p.appKey||'';$('m4user').value=p.username||'';$('m4pass').value=p.password||'';m4AuthUi()}

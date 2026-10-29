@@ -297,6 +297,13 @@ def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenien
     o = {"id": oid, "template": t.get("name"), "picks": dict(picks), "steps": out, "preChosen": chosen,
          "priority": int(cfg.get("priority") or 1), "vehicle": cfg.get("vehicle") or "",
          "group": (cfg.get("group") or "").strip(), "label": (cfg.get("label") or "").strip()}
+    # M4 order-level container (CreateOrderReq containerTypeName / containerDir, radians); RDS ignores them
+    ctype = (cfg.get("containerTypeName") or "").strip()
+    if ctype: o["containerTypeName"] = ctype
+    cdir = cfg.get("containerDir")
+    if cdir is not None and str(cdir).strip() != "":
+        try: o["containerDir"] = float(cdir)
+        except (TypeError, ValueError): raise ValueError("containerDir 必须是数字（弧度） / must be a number (radians): %r" % (cdir,))
     return o
 
 def needed_pre_roles(t):

@@ -9,6 +9,7 @@ Neutral order::
 
     {"id": str, "template": str, "picks": {pool: station},
      "priority": int, "vehicle": str, "group": str, "label": str,
+     "containerTypeName": str, "containerDir": float (both optional, M4 only),
      "steps": [{"id", "name", "location", "operation", "args": {...},
                 "suffix": "-s", "variableShape": {"head", "tail"} (optional)}]}
 
