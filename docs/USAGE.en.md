@@ -65,6 +65,7 @@ Step columns: location → **Mode** → **Action** (single input) → **Args** (
 | Action mode `opMode` (动作模式) | `binTask` (name only) or `operation` (name + args); shared by M4/RDS; mix per step. New steps default to `binTask`. If omitted: M4 falls back to profile/`binTask`, RDS falls back to `operation` (legacy templates) |
 | Args (JSON) (参数 args) | Must be a JSON object; multi-line edit box, its height can be dragged vertically. Hidden and ignored when `opMode=binTask` |
 | variableShape | Column shown for RDS only; optional; after ticking "on" enter `head` / `tail` (numbers, in meters), which are written to the block's `variableShape`. Hidden when Dispatcher is M4 |
+| Keep final path space (保持末段空间资源不释放) keepFinalPathSpace | Column shown for M4 only; when ticked the step is sent with `keepFinalPathSpace: true` (M4 order-step field "保持末段空间资源不释放", keep the last path segment's space reserved); unticked = field not sent. Hidden when Dispatcher is RDS |
 
 **args variables** (substituted inside strings; an unknown variable is an error):
 `{start}` `{end}` `{<pool>}` the station picked from that pool for this order; `{pickPre}` `{dropPre}` the pre-points of the start/end stations; `{pre:<pool>}` the pre-point of that pool's station; `{stationOf:<step ID|stepN>}` the station of a step; `{preOf:<step>}` the pre-point of a step's station; `{orderId}` the order ID.

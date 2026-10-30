@@ -17,6 +17,7 @@ A template is an ordered list of steps. Every step has
                 RDS: operation). Legacy args.m4Mode is migrated into opMode on validate.
   args          dict; strings may contain variables (see substitute())
   vsOn / variableShape   optional {"head": float, "tail": float}
+  keepFinalPathSpace     optional bool, M4 only (step field 保持末段空间资源不释放); RDS ignores it
   blockSuffix   optional legacy override for per-step id suffix (default "-<id>"); UI no longer edits this — id is the suffix source for new edits
 
 Adapters (order_tester.adapters.*) turn the neutral order produced by build_order() into a
@@ -97,6 +98,8 @@ def validate(t):
         vs = s.get("variableShape")
         if s.get("vsOn") and not (isinstance(vs, dict) and _num(vs.get("head")) is not None and _num(vs.get("tail")) is not None):
             errs.append(where + ": variableShape head/tail must be numbers")
+        if "keepFinalPathSpace" in s and not isinstance(s["keepFinalPathSpace"], bool):
+            errs.append(where + ": keepFinalPathSpace must be true/false")
     for i, s in enumerate(steps):
         loc = s.get("location") if isinstance(s, dict) else None
         if isinstance(loc, dict) and loc.get("type") == "pre" and resolve_step_ref(steps, loc.get("step")) is None:
@@ -293,6 +296,7 @@ def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenien
         vs = s.get("variableShape")
         if s.get("vsOn") and isinstance(vs, dict) and vs.get("head") is not None and vs.get("tail") is not None:
             st["variableShape"] = {"head": float(vs["head"]), "tail": float(vs["tail"])}
+        if s.get("keepFinalPathSpace") is True: st["keepFinalPathSpace"] = True
         out.append(st)
     o = {"id": oid, "template": t.get("name"), "picks": dict(picks), "steps": out, "preChosen": chosen,
          "priority": int(cfg.get("priority") or 1), "vehicle": cfg.get("vehicle") or "",

@@ -10,7 +10,8 @@ Neutral order::
     {"id": str, "template": str, "picks": {pool: station},
      "priority": int, "vehicle": str, "group": str, "label": str,
      "steps": [{"id", "name", "location", "operation", "args": {...},
-                "suffix": "-s", "variableShape": {"head", "tail"} (optional)}]}
+                "suffix": "-s", "variableShape": {"head", "tail"} (optional, RDS),
+                "keepFinalPathSpace": True (optional, M4)}]}
 
 Normalised order status (``order_status``)::
 

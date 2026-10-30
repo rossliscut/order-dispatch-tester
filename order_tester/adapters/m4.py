@@ -118,6 +118,7 @@ class M4Adapter(DispatcherAdapter):
         unload = "unload" in low; load = not unload and "load" in low
         s["forLoad"] = as_bool(hint["forLoad"]) if "forLoad" in hint else load
         s["forUnload"] = as_bool(hint["forUnload"]) if "forUnload" in hint else unload
+        if st.get("keepFinalPathSpace") is True: s["keepFinalPathSpace"] = True  # 保持末段空间资源不释放
         return s
 
     def build_payload(self, order):

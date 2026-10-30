@@ -66,6 +66,22 @@ class AdapterTest(Base):
         ad.configure(dict(C.m4_profile(), opMode="operation"))
         self.assertEqual(ad.build_step({"id": "o"}, dict(st, args={}))["rbkArgs"], {"operation": "ForkLoad"})
 
+    def test_keep_final_path_space(self):
+        # per-step 保持末段空间资源不释放: checked -> keepFinalPathSpace true; unchecked/missing -> not sent
+        t = T.builtin_default(); end = [s for s in t["steps"] if s["id"] == "e"][0]; end["keepFinalPathSpace"] = True
+        T.validate(t)
+        b = C.make_draft({"start": "AP1", "end": "AP2"}, t, {}, "m4-kfs")["body"]
+        on = [s for s in b["steps"] if s.get("keepFinalPathSpace")]
+        self.assertEqual([s["id"] for s in on], ["m4-kfs" + (end.get("blockSuffix") or "-e")]); self.assertIs(on[0]["keepFinalPathSpace"], True)
+        self.assertEqual(sum("keepFinalPathSpace" in s for s in b["steps"]), 1)
+        ok, err = C.AD().submit(b); self.assertTrue(ok, err)
+        with fake_m4.LOCK: got = fake_m4.RECEIVED[-1]
+        self.assertEqual([s.get("keepFinalPathSpace") for s in got["steps"]].count(True), 1)
+        end["keepFinalPathSpace"] = "yes"; self.assertTrue(any("keepFinalPathSpace" in e for e in T.validate(t)))  # must be a bool
+        end["keepFinalPathSpace"] = True
+        C.save_settings({"adapter": "rds"}); C.set_adapter("rds"); C.S["prepoints"] = dict(PREPOINTS)  # RDS ignores it
+        self.assertNotIn("keepFinalPathSpace", json.dumps(C.make_draft({"start": "AP1", "end": "AP2"}, t, {}, "rds-kfs")["body"]))
+
     def test_mixed_opmode_in_one_order(self):
         ad = C.AD()
         steps = [

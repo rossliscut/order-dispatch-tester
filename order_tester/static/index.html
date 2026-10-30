@@ -147,6 +147,7 @@ button:active{transform:translateY(1px)}
 #tpl_side .bar{padding:6px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px;background:var(--surface)}
 #tpl_main{flex:1;min-width:0}
 #steps.no-vs .vs-col{display:none}
+#steps:not(.no-vs) .m4-col{display:none}
 #steps tr.om-bin .stargs,#steps tr.om-bin .argerr{display:none}
 #steps tr.om-bin td.stargs-td::after{content:"—";color:var(--muted);font-size:12px}
 #cfg_main{min-width:0}
@@ -219,7 +220,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--accent-hover)}
   <span data-i18n=tpl.name></span> <input id=tpl_name size=24 onchange=renameTpl()>
   <span id=tpl_status></span><br>
   <span data-i18n=tpl.title></span> <input id=tpl_title size=50 oninput="cur.title=this.value;tplChanged()">
-  <div id=tpl_form><table id=steps><thead><tr><th></th><th>#</th><th data-i18n=step.on></th><th data-i18n=step.id></th><th data-i18n=step.name></th><th data-i18n=step.loc></th><th data-i18n=step.mode></th><th data-i18n=step.action></th><th style="width:28%" data-i18n=step.args></th><th class=vs-col><span data-i18n=step.vs></span><br><span class=dim>head / tail (m)</span></th></tr></thead><tbody></tbody></table>
+  <div id=tpl_form><table id=steps><thead><tr><th></th><th>#</th><th data-i18n=step.on></th><th data-i18n=step.id></th><th data-i18n=step.name></th><th data-i18n=step.loc></th><th data-i18n=step.mode></th><th data-i18n=step.action></th><th style="width:28%" data-i18n=step.args></th><th class=vs-col><span data-i18n=step.vs></span><br><span class=dim>head / tail (m)</span></th><th class=m4-col data-i18n-title=step.kfsTip><span data-i18n=step.kfs></span></th></tr></thead><tbody></tbody></table>
   <button onclick=addStep() data-i18n=step.add></button> <span class=dim data-i18n=step.varHint></span></div>
   <label><input type=checkbox id=tpl_raw onchange=toggleRaw()><span data-i18n=tpl.raw></span></label>
   <div id=tpl_rawbox style=display:none><textarea id=tpl_json rows=22 style="width:100%;font:12px monospace" oninput=rawChanged()></textarea></div>

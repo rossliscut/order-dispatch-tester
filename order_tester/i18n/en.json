@@ -312,6 +312,8 @@
  "step.opMode": "Mode",
  "step.varHint": "Args variables: {start} {end} {<pool>} {pickPre} {dropPre} {pre:<pool>} {stationOf:<step id or stepN>} {preOf:<step>} {orderId}",
  "step.vs": "variableShape",
+ "step.kfs": "keep final path space",
+ "step.kfsTip": "M4 only: when checked the step is sent with keepFinalPathSpace: true (保持末段空间资源不释放, keep the last path segment's space reserved); unchecked = field not sent",
  "step.vsOn": "on",
  "sub.conn": "Connection",
  "sub.gen": "Dispatch & Generate",

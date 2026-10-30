@@ -312,6 +312,8 @@
  "step.opMode": "模式",
  "step.varHint": "args 变量: {start} {end} {<池名>} {pickPre} {dropPre} {pre:<池名>} {stationOf:<步骤ID或stepN>} {preOf:<步骤>} {orderId}",
  "step.vs": "variableShape",
+ "step.kfs": "保持末段空间资源不释放",
+ "step.kfsTip": "仅 M4：勾选后该步骤带 keepFinalPathSpace: true（保持末段空间资源不释放），不勾选则不带该字段",
  "step.vsOn": "启用",
  "sub.conn": "连接",
  "sub.gen": "派单参数与生成",

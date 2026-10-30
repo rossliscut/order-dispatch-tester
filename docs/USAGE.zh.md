@@ -65,6 +65,7 @@
 | 动作模式 opMode | `binTask`（仅动作名）或 `operation`（动作名 + 参数）；M4/RDS 通用，可按步混用。新建步骤默认 `binTask`。未写时：M4 回退配置/默认 `binTask`，RDS 回退 `operation`（兼容旧模板） |
 | 参数 args (JSON) | 必须是 JSON 对象；多行编辑框，可纵向拖拽调整高度。`opMode=binTask` 时 UI 隐藏且下发忽略 |
 | variableShape | 仅 RDS 显示该列；可选，勾“启用”后填 `head` / `tail`（数字，米），写入该块的 `variableShape`。M4 时隐藏 |
+| 保持末段空间资源不释放 keepFinalPathSpace | 仅 M4 显示该列；勾选后该步骤带 `keepFinalPathSpace: true`（M4 运单步骤字段「保持末段空间资源不释放」），不勾选则不带。RDS 时隐藏 |
 
 **args 变量**（字符串中替换，未知变量报错）：
 `{start}` `{end}` `{<池名>}` 本单从该池取到的站点；`{pickPre}` `{dropPre}` 起/终点的前置点；`{pre:<池名>}` 该池站点的前置点；`{stationOf:<步骤ID|stepN>}` 某步骤的站点；`{preOf:<步骤>}` 某步骤站点的前置点；`{orderId}` 订单 ID。

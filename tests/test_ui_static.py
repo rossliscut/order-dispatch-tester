@@ -19,6 +19,15 @@ class StationListReadOnlyTest(unittest.TestCase):
             for k in ("st.pick", "st.emptySel", "st.selOnly"): self.assertTrue(d.get(k), (l, k))
 
 class M4UiTest(unittest.TestCase):
+    def test_keep_final_path_space_column(self):
+        html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
+        js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
+        self.assertIn("<th class=m4-col", html); self.assertIn("#steps:not(.no-vs) .m4-col{display:none}", html)  # M4 only, mirror of vs-col
+        self.assertIn("class=stkfs", js); self.assertIn("function setKfs(", js)
+        for l in ("zh", "en"):
+            d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
+            for k in ("step.kfs", "step.kfsTip"): self.assertTrue(d.get(k), (l, k))
+
     def test_m4_fields_and_i18n(self):
         html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
         self.assertIn("id=m4appkey type=password", html); self.assertIn("id=m4pass type=password", html)
