@@ -367,5 +367,7 @@
  "srv.expand": "Show servers",
  "srv.toggleTip": "Collapse/expand the left server list (shared across all tabs)",
  "srv.nameRequired": "Server name is required",
- "tpl.emptyHint": "No templates yet — click New to create one for this server."
+ "tpl.emptyHint": "No templates yet — click New to create one for this server.",
+ "btn.ok": "OK",
+ "btn.cancel": "Cancel"
 }

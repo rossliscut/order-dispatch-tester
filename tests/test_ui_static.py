@@ -18,6 +18,21 @@ class StationListReadOnlyTest(unittest.TestCase):
             d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
             for k in ("st.pick", "st.emptySel", "st.selOnly"): self.assertTrue(d.get(k), (l, k))
 
+class InPageDialogTest(unittest.TestCase):
+    def test_no_native_dialogs(self):
+        # native confirm/prompt/alert are suppressed in some embedded browsers (buttons silently do nothing)
+        js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
+        for f in ("confirm", "prompt", "alert"):
+            self.assertIsNone(re.search(r"(?<![\w.$])%s\(" % f, js), f)
+        for f in ("function uiConfirm(", "function uiPrompt(", "function uiAlert(", "function uiDlg("): self.assertIn(f, js)
+        for f in ("delDrafts", "swapDrafts", "sendSel"):
+            i = js.index("async function %s()" % f); body = js[i:js.index("\nasync function", i + 1)] if "\nasync function" in js[i + 1:] else js[i:]
+            self.assertIn("await uiConfirm(", body, f)
+        self.assertIn(".uidlg{", open(os.path.join(D, "static", "index.html"), encoding="utf-8").read())
+        for l in ("zh", "en"):
+            d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
+            for k in ("btn.ok", "btn.cancel"): self.assertTrue(d.get(k), (l, k))
+
 class M4UiTest(unittest.TestCase):
     def test_keep_final_path_space_column(self):
         html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()

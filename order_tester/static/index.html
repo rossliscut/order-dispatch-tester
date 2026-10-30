@@ -148,6 +148,11 @@ button:active{transform:translateY(1px)}
 #tpl_main{flex:1;min-width:0}
 #steps.no-vs .vs-col{display:none}
 #steps:not(.no-vs) .m4-col{display:none}
+.uidlg{position:fixed;inset:0;background:rgba(15,23,42,.35);display:flex;align-items:center;justify-content:center;z-index:10000}
+.uidlg-box{background:#fff;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:16px 18px;min-width:320px;max-width:min(640px,92vw);max-height:80vh;display:flex;flex-direction:column;gap:12px}
+.uidlg-msg{white-space:pre-wrap;overflow:auto;font-size:13px;line-height:1.5}
+.uidlg-in{width:100%;box-sizing:border-box;padding:6px 8px}
+.uidlg-btns{display:flex;justify-content:flex-end;gap:8px}.uidlg-btns button{min-width:72px}
 #steps tr.om-bin .stargs,#steps tr.om-bin .argerr{display:none}
 #steps tr.om-bin td.stargs-td::after{content:"—";color:var(--muted);font-size:12px}
 #cfg_main{min-width:0}

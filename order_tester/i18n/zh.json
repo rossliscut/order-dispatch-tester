@@ -367,5 +367,7 @@
  "srv.expand": "显示服务器列表",
  "srv.toggleTip": "折叠/展开左侧服务器列表（所有页签共用）",
  "srv.nameRequired": "请填写服务器名称",
- "tpl.emptyHint": "暂无模板 — 点「新建」为本服务器创建"
+ "tpl.emptyHint": "暂无模板 — 点「新建」为本服务器创建",
+ "btn.ok": "确定",
+ "btn.cancel": "取消"
 }
