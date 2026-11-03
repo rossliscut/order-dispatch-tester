@@ -11,6 +11,11 @@ A template is an ordered list of steps. Every step has
                                                                   (scene AP->LM derivation or the override map)
                     optional "select": nearest (default) | index | name | dir | random, "selArg": see PRE_SELECT
                   {"type": "fixed", "station": "<station name>"}
+  location.target optional on pool/fixed: "station" (default, go to the point) or "bin" (go to a bin on that
+                  station). A bin is not named in the template. When the resolved station has several bins,
+                  "select"/"selArg" use the same rules as a pre-point (PRE_SELECT). One bin is used as-is;
+                  no bins falls back to the station. A legacy "bin": "Loc-…" name is dropped on validate.
+                  M4 writes the resolved bin name into step location; RDS still sends the station.
   operation     operation name ("none" = move only)
   opMode        "binTask" | "operation" (per-step; both M4 and RDS). binTask = action name only;
                 operation = action name + args. Missing: adapters fall back (M4: profile opMode/binTask;
@@ -60,6 +65,52 @@ def builtin_default():
 # ---------------------------------------------------------------- validation
 NAME_RE = re.compile(r"^[A-Za-z0-9_.\-\u4e00-\u9fff]{1,64}$")
 
+def entry_station(e):
+    """Station name of a pool entry. A plain string is the station; an object uses ``station``."""
+    if isinstance(e, str): return e.strip()
+    if isinstance(e, dict):
+        s = e.get("station")
+        if s is None or isinstance(s, bool): return ""
+        return str(s).strip()
+    return ""
+
+def entry_bin(e):
+    """Bin name on a pool entry or a fixed location, or '' when absent."""
+    if not isinstance(e, dict): return ""
+    b = e.get("bin")
+    if b is None or isinstance(b, bool): return ""
+    return str(b).strip()
+
+def entry_location(e):
+    """Work target: bin name when set, otherwise the station name."""
+    return entry_bin(e) or entry_station(e)
+
+def entry_label(e):
+    """Display form. Strings stay unchanged; a bin is shown as ``station · bin``."""
+    st, bn = entry_station(e), entry_bin(e)
+    if st and bn: return st + " · " + bn
+    return st or bn
+
+def normalize_entry(e):
+    """Canonical pool entry: a station string, or ``{"station", "bin"}`` when a bin is set. None if invalid."""
+    st, bn = entry_station(e), entry_bin(e)
+    if not st: return None
+    if bn: return {"station": st, "bin": bn}
+    return st
+
+def normalize_pool_list(items):
+    """Drop invalid entries, collapse ``{station}`` (no bin) to a string, dedupe by (station, bin). Order kept."""
+    out, seen = [], set()
+    if not isinstance(items, list): return []
+    for e in items:
+        n = normalize_entry(e)
+        if n is None: continue
+        k = (entry_station(n), entry_bin(n))
+        if k in seen: continue
+        seen.add(k)
+        out.append(n)
+    return out
+
 def validate(t):
     """Normalise a template in place and return a list of error strings (empty = ok)."""
     errs = []
@@ -91,7 +142,26 @@ def validate(t):
         if not isinstance(loc, dict) or loc.get("type") not in ("pool", "pre", "fixed"):
             errs.append(where + ": location.type must be pool/pre/fixed"); continue
         if loc["type"] == "pool" and not loc.get("pool"): errs.append(where + ": location.pool missing")
-        if loc["type"] == "fixed" and not loc.get("station"): errs.append(where + ": location.station missing")
+        if loc["type"] == "fixed":
+            stn = str(loc.get("station") or "").strip()
+            if not stn: errs.append(where + ": location.station missing")
+            else: loc["station"] = stn
+        if loc["type"] in ("pool", "fixed"):
+            # A stored bin name (Loc-…) is not a selector. Drop it and stay on the station
+            # unless the step already says target=bin. The name is not turned into select=name.
+            loc.pop("bin", None)
+            tgt = loc.get("target")
+            if tgt in (None, "", "station"):
+                loc.pop("target", None); loc.pop("select", None); loc.pop("selArg", None)
+            elif tgt == "bin":
+                loc["target"] = "bin"
+                if (loc.get("select") or "nearest") == "nearest":
+                    loc.pop("select", None); loc.pop("selArg", None)
+                else:
+                    e = check_sel(*sel_of(loc))
+                    if e: errs.append(where + ": " + e)
+            else:
+                errs.append(where + ": location.target must be station or bin")
         if loc["type"] == "pre" and (loc.get("select") or "nearest") != "nearest":
             e = check_sel(*sel_of(loc))
             if e: errs.append(where + ": " + e)
@@ -178,8 +248,24 @@ def check_sel(by, arg):
 def sel_label(by, arg):
     return by if by in ("nearest", "random") else "%s=%s" % (by, arg)
 
+def bin_cands(raw):
+    """Station bins -> the same candidate dicts pick_pre already understands.
+    Accepts names or {name, dir?, dist?, ...}. Order kept, duplicate names dropped."""
+    out, seen = [], set()
+    for c in raw or []:
+        if isinstance(c, str):
+            item = {"name": c.strip(), "dir": None, "dist": None, "lm": None}
+        elif isinstance(c, dict):
+            item = dict(c); item["name"] = str(item.get("name") or "").strip()
+        else:
+            continue
+        if not item["name"] or item["name"] in seen: continue
+        seen.add(item["name"]); out.append(item)
+    return out
+
 def pick_pre(cands, by, arg, rng=None):
-    """cands: [{name, dir, dist, lm}] in preference order. Returns a name or ''."""
+    """cands: [{name, dir, dist, lm}] in preference order. Returns a name or ''.
+    Also used for a station's bins (same select/selArg). 'nearest' is the first candidate."""
     if not cands: return ""
     if by == "nearest": return cands[0]["name"]
     if by == "index":
@@ -199,9 +285,15 @@ def pick_pre(cands, by, arg, rng=None):
 VAR_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)(?::([^{}:]+))?\}")
 
 class Ctx:
-    def __init__(self, oid, picks, steps, locs, pre_of, roles, choose=None):
+    def __init__(self, oid, picks, steps, locs, pre_of, roles, choose=None, bases=None, bin_targets=False, step_bins=None):
         self.oid, self.picks, self.steps, self.locs, self.pre_of, self.roles = oid, picks, steps, locs, pre_of, roles
-        self.choose = choose; self.step = None
+        self.choose = choose; self.bases = bases or {}; self.bin_targets = bin_targets
+        self.step_bins = step_bins or {}; self.step = None
+    def _pick_station(self, name):
+        return entry_station(self.picks.get(name, ""))
+    def _pick_loc(self, name):
+        if self.bin_targets and name in self.step_bins: return self.step_bins[name]
+        return entry_station(self.picks.get(name, ""))
     def _pre(self, station, arg, what):
         """'<ref>@<selector>' -> pre-point by selector; plain -> legacy default (may be '')"""
         if arg is not None and "@" in arg and self.choose:
@@ -214,22 +306,25 @@ class Ctx:
         return self.pre_of(station)
     def var(self, name, arg):
         if arg is None:
-            if name in self.picks: return self.picks[name]
+            if name in self.picks: return self._pick_loc(name)
             if name == "orderId": return self.oid
-            if name == "pickPre": return self.pre_of(self.picks.get(self._role("start", 0), ""))
-            if name == "dropPre": return self.pre_of(self.picks.get(self._role("end", -1), ""))
+            if name == "pickPre": return self.pre_of(self._pick_station(self._role("start", 0)))
+            if name == "dropPre": return self.pre_of(self._pick_station(self._role("end", -1)))
             raise ValueError("unknown variable {%s}" % name)
         ref = arg.split("@", 1)[0].strip()
-        if name == "pre": return self._pre(self.picks.get(ref, ""), arg, "pre:" + arg)
+        if name == "pre": return self._pre(self._pick_station(ref), arg, "pre:" + arg)
         if name in ("stationOf", "preOf"):
             s = resolve_step_ref(self.steps, ref)
             if s is None: raise ValueError("unknown step in {%s:%s}" % (name, arg))
             st = self.locs.get(s["id"], "")
-            if name == "stationOf": return st
+            if name == "stationOf": return self.base_station(s)
             loc = s.get("location") or {}
             return self._pre(self.base_station(s) if loc.get("type") != "pre" else st, arg, "preOf:" + arg)
         raise ValueError("unknown variable {%s:%s}" % (name, arg))
     def base_station(self, s):
+        """Station used for pre-points. Pool/fixed steps keep the LM/AP even when location is a bin."""
+        if (s.get("location") or {}).get("type") == "pre": return self.locs.get(s["id"], "")
+        if s["id"] in self.bases: return self.bases[s["id"]]
         return self.locs.get(s["id"], "")
     def _role(self, want, idx):
         if want in self.roles: return want
@@ -242,13 +337,54 @@ def substitute(v, ctx):
         return VAR_RE.sub(lambda m: str(ctx.var(m.group(1), m.group(2))), v)
     return v
 
+def _pool_step_bins(steps, locs, bin_targets):
+    """First enabled pool step that goes to a bin: pool name -> that step's resolved M4 location.
+    {pool} then matches the bin name written into the step (or the station, when the station had no bin)."""
+    if not bin_targets: return {}
+    out = {}
+    for s in steps or []:
+        if not isinstance(s, dict) or not s.get("enabled", True): continue
+        loc = s.get("location") or {}
+        if loc.get("type") == "pool" and loc.get("target") == "bin" and loc.get("pool") and loc["pool"] not in out:
+            out[loc["pool"]] = locs.get(s["id"]) or ""
+    return out
+
 # ---------------------------------------------------------------- build a neutral order
-def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenient=False):
-    """picks: {pool name: station}. Returns a neutral order dict. ValueError if a needed pre-point is missing.
-    pre_of(station) -> default pre-point; cands_of(station) -> [{name, dir, dist, lm}] for non-default selectors."""
+def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenient=False, bin_targets=False, bins_of=None):
+    """picks: {pool name: station string or {station, bin?}}. Returns a neutral order dict.
+    ValueError if a needed pre-point is missing, or a multi-bin station has no bin matching the selector.
+    pre_of(station) -> default pre-point; cands_of(station) -> [{name, dir, dist, lm}] for non-default selectors.
+    bins_of(station) -> that station's bins only (names or candidate dicts), in list order. Not every Loc on the map.
+    bin_targets: M4 only. When true, a pool/fixed step with target=bin writes the resolved bin name into step
+    ``location`` (the only bin when the station has one; the selector's pick when it has several; the station
+    itself when it has none). Pre-points and {stationOf} still use the underlying station. RDS leaves this
+    false, so location stays the station. A bin stored on the pool entry is not the step target."""
     oid = oid or "dl-" + uuid.uuid4().hex[:12]
     steps = t["steps"]; roles = pool_roles(t)
-    locs = {}; chosen = []; memo = {}
+    locs = {}; bases = {}; chosen = []; memo = {}; bin_chosen = []; bmemo = {}
+    def choose_bin(station, loc, where):
+        """Apply the pre-point selector to this station's bins. Returns the name to use when bin_targets."""
+        cands = bin_cands(bins_of(station) if bins_of else None)
+        if len(cands) == 0:
+            bin_chosen.append({"where": where, "station": station, "bin": "", "select": "none", "fallback": "station"})
+            return station
+        if len(cands) == 1:
+            name = cands[0]["name"]
+            bin_chosen.append({"where": where, "station": station, "bin": name, "select": "only"})
+            return name
+        by, arg = sel_of(loc)
+        e = check_sel(by, arg)
+        if e: raise ValueError("步骤 %s: %s / step %s: %s" % (where, e, where, e))
+        key = (station, by, arg)
+        if key not in bmemo:
+            bmemo[key] = pick_pre(cands, by, arg, rng)
+            if not bmemo[key] and lenient: bmemo[key] = "<bin:%s@%s>" % (station, sel_label(by, arg))
+            if not bmemo[key]:
+                names = ", ".join("%s(%s)" % (c["name"], c.get("dir") or "?") for c in cands) or "-"
+                raise ValueError("步骤 %s: 站点 %s 没有符合 %s 的库位 / no bin matches %s for station %s [step %s] (候选/candidates: %s)"
+                                 % (where, station, sel_label(by, arg), sel_label(by, arg), station, where, names))
+        bin_chosen.append({"where": where, "station": station, "bin": bmemo[key], "select": sel_label(by, arg)})
+        return bmemo[key]
     def choose(station, by, arg, where):
         key = (station, by, arg)
         if key not in memo:
@@ -264,13 +400,22 @@ def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenien
         return memo[key]
     for s in steps:  # pool + fixed first (derived steps may point forwards)
         loc = s["location"]
-        if loc["type"] == "pool": locs[s["id"]] = picks.get(loc["pool"], "")
-        elif loc["type"] == "fixed": locs[s["id"]] = loc["station"]
+        if loc["type"] == "pool": ent = picks.get(loc["pool"], "")
+        elif loc["type"] == "fixed": ent = loc
+        else: continue
+        stn = entry_station(ent)
+        bases[s["id"]] = stn
+        # target=bin resolves against this station's bins. A named bin on the step or the pool entry is ignored.
+        resolved = choose_bin(stn, loc, s.get("name") or s["id"]) if loc.get("target") == "bin" else stn
+        locs[s["id"]] = resolved if bin_targets else stn
     def resolve(s, depth=0):
-        if s["id"] in locs: return locs[s["id"]]
+        if s["id"] in locs and s["location"]["type"] != "pre": return locs[s["id"]]
+        if s["id"] in locs and s["location"]["type"] == "pre" and s["id"] in bases: return locs[s["id"]]
         if depth > len(steps): raise ValueError("circular pre-point reference at step " + s["id"])
         ref = resolve_step_ref(steps, s["location"].get("step"))
-        base = resolve(ref, depth + 1)
+        resolve(ref, depth + 1)
+        # pre-point of a pool/fixed step follows the station, never the bin name written into location
+        base = locs[ref["id"]] if ref["location"]["type"] == "pre" else bases.get(ref["id"], locs.get(ref["id"], ""))
         by, arg = sel_of(s["location"])
         if by != "nearest":
             p = choose(base, by, arg, s.get("name") or s["id"])
@@ -280,13 +425,13 @@ def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenien
                 what = ("%s(%s)" % (ref["location"]["pool"], ref.get("name") or ref["id"])) if ref["location"]["type"] == "pool" else (ref.get("name") or ref["id"])
                 raise ValueError("%s %s 无前置点 / has no pre-point (scene derivation failed and no manual mapping) [step %s]" % (what, base, s.get("name") or s["id"]))
             chosen.append({"where": s.get("name") or s["id"], "station": base, "pre": p, "select": "nearest"})
-        locs[s["id"]] = p
+        locs[s["id"]] = p; bases[s["id"]] = p
         return p
     out = []
     for s in steps:
         if not s.get("enabled", True): continue
         resolve(s)
-    ctx = Ctx(oid, picks, steps, locs, pre_of, roles, choose)
+    ctx = Ctx(oid, picks, steps, locs, pre_of, roles, choose, bases, bin_targets, _pool_step_bins(steps, locs, bin_targets))
     for s in steps:
         if not s.get("enabled", True): continue
         ctx.step = s
@@ -298,7 +443,7 @@ def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenien
             st["variableShape"] = {"head": float(vs["head"]), "tail": float(vs["tail"])}
         if s.get("keepFinalPathSpace") is True: st["keepFinalPathSpace"] = True
         out.append(st)
-    o = {"id": oid, "template": t.get("name"), "picks": dict(picks), "steps": out, "preChosen": chosen,
+    o = {"id": oid, "template": t.get("name"), "picks": dict(picks), "steps": out, "preChosen": chosen, "binChosen": bin_chosen,
          "priority": int(cfg.get("priority") or 1), "vehicle": cfg.get("vehicle") or "",
          "group": (cfg.get("group") or "").strip(), "label": (cfg.get("label") or "").strip()}
     return o
@@ -317,45 +462,53 @@ def needed_pre_roles(t):
 # ---------------------------------------------------------------- generation strategies
 class RandomPicker:
     """Random pick per pool. no_reuse: sample without replacement inside a batch, reshuffle when exhausted.
-    no_self: a station is not used twice in one order. (Same random-call sequence as the legacy Picker.)"""
+    no_self: a station is not used twice in one order (bin entries compare by their station).
+    (Same random-call sequence as the legacy Picker for string pools.)"""
     def __init__(self, pools, no_self=True, no_reuse=True, rng=None):
         self.pools = [(k, list(v)) for k, v in pools]; self.no_self, self.no_reuse = no_self, no_reuse
         self.rem = {k: [] for k, _ in self.pools}; self.rng = rng or random
     def _take(self, rem, full, excl):
         r = self.rng
+        ok = lambda x: entry_station(x) not in excl
         if not self.no_reuse:
-            c = [x for x in full if x not in excl] or full; return r.choice(c)
-        if not [x for x in rem if x not in excl]: rem.extend(r.sample(full, len(full)))
-        c = [i for i, x in enumerate(rem) if x not in excl]
+            c = [x for x in full if ok(x)] or full; return r.choice(c)
+        if not [x for x in rem if ok(x)]: rem.extend(r.sample(full, len(full)))
+        c = [i for i, x in enumerate(rem) if ok(x)]
         if not c: return r.choice(full)
         return rem.pop(r.choice(c))
     def next(self):
         picks = {}
         for k, full in self.pools:
-            picks[k] = self._take(self.rem[k], full, set(picks.values()) if self.no_self else set())
+            excl = {entry_station(v) for v in picks.values()} if self.no_self else set()
+            picks[k] = self._take(self.rem[k], full, excl)
         return picks
     def default_count(self): return len(self.pools[0][1]) if self.pools else 0
 
 class RoundRobinPicker:
-    """Order i takes element i % len(pool) of every pool (skips forward to avoid a repeated station if no_self)."""
+    """Order i takes element i % len(pool) of every pool (skips forward to avoid a repeated station if no_self).
+    A bin entry counts as its station."""
     def __init__(self, pools, no_self=True, **_):
         self.pools = [(k, list(v)) for k, v in pools]; self.no_self = no_self; self.i = 0
     def next(self):
         picks = {}
         for k, full in self.pools:
+            taken = {entry_station(v) for v in picks.values()}
+            x = full[self.i % len(full)] if full else ""
             for j in range(len(full)):
                 x = full[(self.i + j) % len(full)]
-                if not self.no_self or x not in picks.values(): break
+                if not self.no_self or entry_station(x) not in taken: break
             picks[k] = x
         self.i += 1
         return picks
     def default_count(self): return max((len(v) for _, v in self.pools), default=0)
 
 class CartesianPicker:
-    """Every combination once (pools in pick order); combos repeating a station are skipped if no_self. Cycles."""
+    """Every combination once (pools in pick order); combos repeating a station are skipped if no_self. Cycles.
+    A bin entry counts as its station, so two bins of one station are not combined with each other."""
     def __init__(self, pools, no_self=True, **_):
         self.keys = [k for k, _ in pools]
-        self.combos = [c for c in itertools.product(*[v for _, v in pools]) if not no_self or len(set(c)) == len(c)]
+        self.combos = [c for c in itertools.product(*[v for _, v in pools])
+                       if not no_self or len({entry_station(x) for x in c}) == len(c)]
         self.i = 0
     def next(self):
         if not self.combos: raise ValueError("no valid combination")

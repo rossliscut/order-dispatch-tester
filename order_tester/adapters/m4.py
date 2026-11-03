@@ -104,6 +104,8 @@ class M4Adapter(DispatcherAdapter):
         args = dict(st.get("args") if isinstance(st.get("args"), dict) else {})
         hint = {k: args.pop(k) for k in STEP_KEYS if k in args}
         op = st.get("operation"); mode = self.step_mode(st, hint)
+        # location is already the target string. M4 bin targets put the bin name here (no extra rbkArgs key).
+        # opMode=binTask is the action mode and is unrelated to which bin was chosen.
         s = {"id": order["id"] + st["suffix"], "location": st["location"]}
         if op == "Script":
             rb = {"operation": "Script", "script_name": args.pop("script_name", ""), "script_args": args.pop("script_args", {})}

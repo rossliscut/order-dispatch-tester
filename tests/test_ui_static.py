@@ -114,6 +114,88 @@ class M4UiTest(unittest.TestCase):
         zh = json.load(open(os.path.join(D, "i18n", "zh.json"), encoding="utf-8")); en = json.load(open(os.path.join(D, "i18n", "en.json"), encoding="utf-8"))
         self.assertEqual(set(zh), set(en))
 
+class BinTargetUiTest(unittest.TestCase):
+    def test_bin_picker_and_i18n(self):
+        js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
+        html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
+        self.assertNotIn("function openBinMenu(", js)
+        self.assertNotIn("oncontextmenu", js)
+        self.assertNotIn("#binmenu", html)
+        self.assertNotIn("binpick", js)  # pool chips are stations only
+        self.assertNotIn("setChipBin", js)
+        self.assertNotIn("function binSelect(", js)  # no dropdown of concrete bin names
+        self.assertNotIn("binsForPool(", js)
+        self.assertNotIn("class=locbin", js)
+        self.assertIn("function targetCell(", js)
+        self.assertIn("class=loctgt", js)
+        self.assertIn("function selCell(", js)  # bin target reuses the pre-point selector
+        tc = js[js.index("function targetCell("):js.index("function poolSelect(")]
+        self.assertIn("value=station", tc); self.assertIn("value=bin", tc)
+        self.assertEqual(tc.count("option value="), 2)  # Station / Bin only, no Loc-… options
+        self.assertIn("selCell(L,i,dis,'sel.binTip')", tc)
+        self.assertIn("tgt.noBin", tc); self.assertIn("tgt.oneBin", tc)
+        self.assertIn("n===0", tc.replace(" ", "")); self.assertIn("n===1", tc.replace(" ", ""))
+        self.assertNotIn(".map(", tc)
+        i = js.index("function renderSt(")
+        body = js[i:js.index("let hlSt", i)]
+        self.assertNotIn("pick(", body)  # station table stays read-only
+        for l in ("zh", "en"):
+            d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
+            for k in ("bin.none", "bin.pick", "bin.vsTask", "tgt.station", "tgt.bin", "tgt.tip", "tgt.noBin", "tgt.oneBin", "sel.binTip"):
+                self.assertTrue(d.get(k), (l, k))
+        en = json.load(open(os.path.join(D, "i18n", "en.json"), encoding="utf-8"))
+        self.assertEqual(en["bin.none"], "No bin")
+        self.assertEqual(en["bin.pick"], "Bin")
+        self.assertEqual(en["tgt.station"], "Station")
+        self.assertEqual(en["tgt.bin"], "Bin")
+        self.assertEqual(en["tgt.station"], en["st.name"])  # same English word as the station column
+        self.assertEqual(en["tgt.bin"], en["bin.pick"])  # same English word as Bin elsewhere
+        src = open(os.path.join(D, "..", "tools", "i18n_src.py"), encoding="utf-8").read()
+        self.assertIn('"tgt.station": ("走点位", "Station")', src)
+        self.assertIn('"tgt.bin": ("走库位", "Bin")', src)
+        self.assertNotIn("dropdown", en["pool.chipHint"])
+        # map left-click toggles the station; hit-test prefers an LM label over a nearby AP
+        i = js.index("function pick(")
+        pick = js[i:js.index("\n// incremental table rows", i)]
+        self.assertNotIn("openBinMenu", pick)
+        self.assertIn("a.push(n)", pick)
+        hit = js[js.index("const HIT_R="):js.index("function pick(", js.index("const HIT_R="))]
+        self.assertIn("HIT_R=18", hit)
+        self.assertIn("function isLmStation(", hit)
+        self.assertIn("function isApStation(", hit)
+        self.assertIn("nameLabel(", hit)
+        self.assertIn("lms.length?lms:hits", hit.replace(" ", ""))
+        self.assertIn("mapHit(e)", js[js.index("function hoverSt("):js.index("function drawStations(")])
+        up = js[js.index("C.onmouseup="):js.index("C.onmouseleave")]
+        self.assertIn("pick(best.name)", up)
+        self.assertNotIn("openBinMenu", up)
+
+    def test_scene_load_refreshes_open_template_steps(self):
+        """binMax reads stMap via stationBins. Scene writes must redraw an open template."""
+        js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
+        ss = js[js.index("function setScene("):js.index("function refreshStepsForScene(")]
+        self.assertIn("refreshStepsForScene()", ss)
+        rf = js[js.index("function refreshStepsForScene("):js.index("let busyN")]
+        self.assertIn("if(!cur||!$('steps'))return", rf.replace(" ", ""))
+        self.assertIn("renderSteps()", rf)
+        self.assertIn("#steps", rf)  # don't clobber a step control that has focus
+        # 0 bins: fallback note, not a name list. The count comes from stationBins.
+        bm = js[js.index("function binMax("):js.index("function targetCell(")]
+        self.assertIn("stationBins(", bm)
+        self.assertIn("sceneStation(", bm)
+        ls = js[js.index("async function loadScene("):js.index("async function ensureScene(")]
+        self.assertIn("if(!r.ok)", ls)
+        self.assertIn("setScene(", ls[ls.index("if(!r.ok)"):])
+        ini = js[js.index("async function initSettings("):js.index("async function saveCfg(")]
+        cache = ini[ini.index("/api/scene_geom?cached=1"):ini.index("catch(e){}", ini.index("/api/scene_geom?cached=1"))]
+        self.assertIn("setScene(", cache)
+        sel = js[js.index("async function selectServer("):js.index("async function addServer(")]
+        sc = sel[sel.index("/api/scene_geom?cached=1"):sel.index("catch(e){}", sel.index("/api/scene_geom?cached=1"))]
+        self.assertIn("setScene(", sc)
+        dele = js[js.index("async function delServer("):js.index("async function m4Load(")]
+        dc = dele[dele.index("/api/scene_geom?cached=1"):dele.index("catch(e){}", dele.index("/api/scene_geom?cached=1"))]
+        self.assertIn("setScene(", dc)
+
 class MapToolbarTest(unittest.TestCase):
     def test_no_manual_smap_upload_or_path(self):
         html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()

@@ -75,7 +75,14 @@ legacy `settings.json` if present, otherwise from the built-in). Example templat
 ```
 
 - `location.type`: `pool` (pick from the named pool via the strategy), `pre` (pre-point of the station of
-  another step: manual override map first, then scene derivation AP→LM), `fixed`.
+  another step: manual override map first, then scene derivation AP→LM), `fixed` (a fixed station).
+  `pool` / `fixed` may also set `target`: `station` (default) or `bin`. Bin does not store a bin name;
+  when that station has several bins, `select` / `selArg` are the same criteria as a pre-point.
+- Pool entries are station-name strings (a legacy `{"station","bin"}` is only a label). When a step goes
+  to a bin, M4 writes the bin name resolved from **that station's** bins into the step `location`;
+  pre-points and "no repeated station" still use the station. RDS keeps sending the station. A bin target
+  is not the same thing as `opMode=binTask`. An old `location.bin="Loc-…"` is dropped on validate and the
+  step stays on the station.
 - `operation: "none"` = move only. Optional `blockSuffix` sets the RDS blockId suffix (default `-<id>`).
 - Variables in args strings: `{start}`, `{end}`, `{<pool>}`, `{pickPre}`, `{dropPre}`, `{pre:<pool>}`,
   `{stationOf:<step id|stepN>}`, `{preOf:<step>}`, `{orderId}`. Unknown variables are an error.

@@ -52,7 +52,8 @@ python -m order_tester --port 5088
 模板是 `<data>/templates/` 下的 JSON 文件。首次启动时会生成 `default.json`（如有旧版 `settings.json` 则按旧设置迁移，
 否则使用内置默认）。示例见 `examples/templates/`。格式见英文 README 的示例。
 
-- `location.type`：`pool`（按策略从命名池取站点）、`pre`（另一步骤站点的前置点：先查手动映射，再用场景 AP→LM 推导）、`fixed`（固定站点）。
+- `location.type`：`pool`（按策略从命名池取站点）、`pre`（另一步骤站点的前置点：先查手动映射，再用场景 AP→LM 推导）、`fixed`（固定站点）。`pool` / `fixed` 可再设 `target`：`station`（走点位，默认）或 `bin`（走库位）。走库位不写具体库位名；该站有多个库位时用与前置点相同的 `select` / `selArg`。
+- 站点池条目是站点名字符串（旧数据里的 `{"station","bin"}` 只用于显示）。走库位时，M4 把**该站**按选择标准解析出的库位名写入步骤 `location`；前置点和「同一单内站点不重复」仍按站点。RDS 仍发送站点名。库位目标与 `opMode=binTask` 不是一回事。旧模板里的 `location.bin="Loc-…"` 在校验时丢弃，并保持走点位。
 - `operation: "none"` 表示只移动。可选 `blockSuffix` 指定 RDS blockId 后缀（默认 `-<id>`）。
 - args 中的变量：`{start}`、`{end}`、`{<池名>}`、`{pickPre}`、`{dropPre}`、`{pre:<池名>}`、`{stationOf:<步骤ID|stepN>}`、
   `{preOf:<步骤>}`、`{orderId}`；未知变量会报错。

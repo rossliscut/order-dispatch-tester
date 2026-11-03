@@ -30,7 +30,7 @@ function applySettings(st){if(!st||typeof st!='object')return;let f=st.fields||{
  if(st.adapter&&$('adsel')){$('adsel').value=st.adapter;$('m4box').style.display=st.adapter==='m4'?'':'none'}
  if(f.grp)fillGroups(null,f.grp);
  for(const[k,v]of Object.entries(f)){let e=$(k);if(!e||NOSAVE.has(k))continue;if(e.type=='checkbox')e.checked=!!v;else if(v!=null)e.value=v}
- if(st.pools&&typeof st.pools=='object')pools=JSON.parse(JSON.stringify(st.pools));else pools={start:Array.isArray(st.starts)?st.starts:[],end:Array.isArray(st.ends)?st.ends:[]};
+ if(st.pools&&typeof st.pools=='object')pools=canonPools(st.pools);else pools=canonPools({start:Array.isArray(st.starts)?st.starts:[],end:Array.isArray(st.ends)?st.ends:[]});
  if(st.strategy)$('strategy').value=st.strategy;pmSaved=st.pm=='S'?'start':st.pm=='E'?'end':(st.pm||'start');
  renderSrvList()}
 function isM4(){return ($('adsel')&&$('adsel').value)==='m4'}
@@ -59,7 +59,9 @@ async function saveCfg(){let st=collect();try{localStorage.setItem(lsKey(),JSON.
  // refresh list labels (base may have changed)
  await refreshServers();return r}
 async function loadSt(){saveCfg();let ok=await loadScene(true,false);if(!ok)return;stations=allSt.slice();$('info').textContent=sceneAt();fitAll();renderSt();renderPool();prevLater()}
-function setScene(list){allSt=list||[];stMap={};for(const s of allSt)stMap[s.name]=s}
+function setScene(list){allSt=list||[];stMap={};for(const s of allSt)stMap[s.name]=s;refreshStepsForScene()}
+// stationBins reads stMap. Steps are often drawn before the cached/loaded scene arrives; pool-name refreshStepPools does not see bins.
+function refreshStepsForScene(){if(!cur||!$('steps'))return;let a=document.activeElement;if(a&&a.closest&&a.closest('#steps')){setTimeout(refreshStepsForScene,500);return}renderSteps()}
 let busyN=0;function busy(on){busyN=Math.max(0,busyN+(on?1:-1));const o=$('busy');if(!o)return;if(busyN){$('busytxt').textContent=t('busy.scene');o.classList.add('on');if(document.activeElement)document.activeElement.blur()}else{o.classList.remove('on','prog');$('busystage').textContent='';$('busyfill').style.width='0'}}
 document.addEventListener('keydown',e=>{if(busyN){e.preventDefault();e.stopPropagation()}},true);
 const STW={request:[0,5],download:[5,50],parse:[50,57],pointcloud:[57,60],mapdl:[60,85],mapparse:[85,92],downsample:[92,96],mapcache:[92,96],cache:[96,100]};
@@ -91,7 +93,30 @@ function preOv(){let r=preOvParse().m,o={};for(const k in r)o[k]=r[k][0];return 
 function preAll(n){/* every candidate pre-point (manual list, else scene list); [0] = default */let m=preOvParse().m[n];if(m&&m.length)return m;let s=stMap[n]||stations.find(x=>x.name==n)||{};let c=(s.preInfo||[]).map(x=>x.name);if(!c.length&&s.preCands)c=s.preCands;if(!c.length&&s.pre)c=[s.pre];return c}
 function preOf(n){let o=preOv();/* default (nearest) pre-point */if(o[n])return o[n];let s=stMap[n]||stations.find(x=>x.name==n);return s&&s.pre||''}
 function pmRole(){let r=$('pm');return r&&r.value?r.value:pmSaved}
-function pick(n,role){role=role||pmRole();let a=pools[role]||(pools[role]=[]);let i=a.indexOf(n);i>=0?a.splice(i,1):a.push(n);renderPool();renderSt();prevLater()}
+function entStation(e){return (typeof e=='string'?e:(e&&e.station!=null?String(e.station):'')).trim()}
+function entBin(e){if(!e||typeof e!='object'||typeof e.bin=='boolean'||e.bin==null)return '';return String(e.bin).trim()}
+function entKey(e){return entStation(e)+'\u0001'+entBin(e)}
+function entLabel(e){let s=entStation(e),b=entBin(e);return b?s+' · '+b:s}
+function entCanon(e){let s=entStation(e);if(!s)return '';let b=entBin(e);return b?{station:s,bin:b}:s}
+function canonPools(src){let o={};for(const k of Object.keys(src||{})){let seen=new Set(),out=[];for(const e of (Array.isArray(src[k])?src[k]:[])){let c=entCanon(e);if(!c)continue;let key=entKey(c);if(seen.has(key))continue;seen.add(key);out.push(c)}o[k]=out}return o}
+function stationBins(n){let s=stMap[n]||stations.find(x=>x.name==n);let b=s&&s.bins;if(!Array.isArray(b))return [];return [...new Set(b.map(x=>String(x||'').trim()).filter(Boolean))]}
+function selectedBins(n){let out=[];for(const r of poolNames())for(const e of pools[r]||[])if(entStation(e)===n){let b=entBin(e);if(b&&!out.includes(b))out.push(b)}return out}
+function poolMarks(n){let h=[];for(const r of poolNames())for(const e of pools[r]||[])if(entStation(e)===n){let b=entBin(e);h.push(`<span class=chip style="color:${pcol(r)};border-color:${pcol(r)};background:${pcol(r)}14">${esc(plab(r))}${b?' · '+esc(b):''}</span>`)}return h.join(' ')}
+const HIT_R=18; // px; was 12. Name labels sit to the right of the dot, so a click on the name must count too.
+function isApStation(s){let n=s.name||'',ty=s.type||'';return n.startsWith('AP')||ty.includes('Action')}
+function isLmStation(s){if(isApStation(s))return false;let n=s.name||'',ty=s.type||'';return n.startsWith('LM')||ty.includes('Location')}
+function nameLabel(s,sx,sy){/* union of the name drawn at +4,-4 (plain) and +9,-6 (in a pool) */
+ let w=Math.ceil(((s.name||'').length)*7.2)+12;return {x:sx+4,y:sy-18,w:Math.max(36,w),h:22}}
+function mapHit(e){/* dot within HIT_R, or inside the name label. If an LM/Location and an AP are both in range, the LM wins. A label hit beats a nearer foreign dot. */
+ let px=e.offsetX,py=e.offsetY,list=allSt.length?allSt:stations,hits=[],r2=HIT_R*HIT_R;
+ for(const s of list){if(s.x==null)continue;let sx=tx(s.x),sy=ty(s.y),dot=(sx-px)**2+(sy-py)**2,lab=nameLabel(s,sx,sy);
+  let inLab=px>=lab.x&&px<=lab.x+lab.w&&py>=lab.y&&py<=lab.y+lab.h;if(dot<=r2||inLab)hits.push({s,d:inLab?0:dot,lm:isLmStation(s)})}
+ if(!hits.length)return null;let lms=hits.filter(h=>h.lm),pool=lms.length?lms:hits;pool.sort((a,b)=>a.d-b.d);return pool[0].s}
+function pick(n,role){/* map click toggles the station only. Go-to-bin is a template step choice, not a named bin here. */
+ role=role||pmRole();let a=pools[role]||(pools[role]=[]);
+ if(a.some(e=>entStation(e)===n)){for(let i=a.length-1;i>=0;i--)if(entStation(a[i])===n)a.splice(i,1)}
+ else a.push(n);
+ renderPool();renderSt();prevLater()}
 // incremental table rows (keeps scroll / selection / open JSON boxes)
 function syncRows(tb,items){let ex=new Map();for(const tr of [...tb.rows])if(tr.dataset.k)ex.set(tr.dataset.k,tr);
  let want=new Set(items.map(i=>i.k));for(const[k,tr]of ex)if(!want.has(k))tr.remove();let prev=null;
@@ -113,23 +138,23 @@ function candHtml(s,manual){let c=s.preInfo||(s.preCands||[]).map(n=>({name:n}))
 function renderSt(){let pe=preOvParse().errs;if($('pre_err'))$('pre_err').textContent=pe.join('\n');let q=$('q').value.toLowerCase(),tf=$('tf').value.toLowerCase(),ov=preOv(),pn=poolNames(),sig=pn.join('|');
  if(stSig!==sig){$('st').innerHTML='';stTable=null;stSig=sig}
  if(!stTable)stTable=mkTable($('st'),[t('st.name'),t('st.type'),t('st.xy'),t('st.pre'),t('st.pick')]);
- let inSel={};pn.forEach(r=>(pools[r]||[]).forEach(n=>{(inSel[n]=inSel[n]||[]).includes(r)||inSel[n].push(r)}));
+ let inSel={};pn.forEach(r=>(pools[r]||[]).forEach(e=>{let n=entStation(e);if(n)(inSel[n]=inSel[n]||[]).includes(r)||inSel[n].push(r)}));
  let rows=Object.keys(inSel).map(n=>stMap[n]||stations.find(x=>x.name==n)||{name:n,type:n.replace(/\d.*/,''),x:null,y:null,pre:'',missing:true}).filter(s=>s.name.toLowerCase().includes(q)&&((s.type||'')+s.name).toLowerCase().includes(tf));
  $('st_empty').textContent=Object.keys(inSel).length?'':t('st.emptySel');
  syncRows(stTable.tBodies[0],rows.map(s=>{let miss=(s.missing||!stMap[s.name])&&allSt.length,pp=ov[s.name]||s.pre||'',pall=preOvParse().m[s.name],tt=(s.preSrc||'')+(ov[s.name]?' ('+t('pre.manual')+')':''),cl=candHtml(s,pall);
   return {k:s.name,st:miss?'background:#fdd':'',c:[esc(s.name)+(miss?` <b style=color:red>${t('msg.notInScene')}</b>`:''),esc(s.type||''),s.x!=null?s.x.toFixed(2)+','+s.y.toFixed(2):'',
   {h:'<b>'+esc(pp)+'</b>'+cl,title:tt},
-  inSel[s.name].map(r=>`<span class=chip style="color:${pcol(r)};border-color:${pcol(r)};background:${pcol(r)}14">${esc(plab(r))}</span>`).join(' ')]}}));draw()}
+  poolMarks(s.name)]}}));draw()}
 let hlSt=new Set();
-function chips(a,r){let ov=preOv(),c=pcol(r);return a.map(n=>{let pp=ov[n]||(stMap[n]||stations.find(x=>x.name==n)||{}).pre||'';
+function chips(a,r){let ov=preOv(),c=pcol(r);return a.map(e=>{let n=entStation(e);let pp=ov[n]||(stMap[n]||stations.find(x=>x.name==n)||{}).pre||'';
  let tt=t('pre.of')+': '+(pp||(allSt.length?t('pre.none'):t('pre.loading')))+(ov[n]?' ('+t('pre.manual')+')':'');
- return `<span class="chip${hlSt.has(n)?' hl':''}" style="color:${c};border-color:${c};background:${c}14" data-n="${esc(n)}" data-r="${esc(r)}" title="${esc(tt)}">${esc(n)}<i title="${t('btn.del')} ${esc(n)}">×</i></span>`}).join('')||`<span class=dim>${t('pool.empty')}</span>`}
-function chipClick(e){let c=e.target.closest('.chip');if(!c)return;let n=c.dataset.n,r=c.dataset.r;
- if(e.target.tagName=='I'){let a=pools[r]||[],i=a.indexOf(n);if(i>=0)a.splice(i,1);renderPool();renderSt();saveNow();prevLater();return}
+ return `<span class="chip${hlSt.has(n)?' hl':''}" style="color:${c};border-color:${c};background:${c}14" data-k="${esc(entKey(e))}" data-n="${esc(n)}" data-r="${esc(r)}" title="${esc(tt)}">${esc(n)}<i title="${t('btn.del')} ${esc(n)}">×</i></span>`}).join('')||`<span class=dim>${t('pool.empty')}</span>`}
+function chipClick(e){let c=e.target.closest('.chip');if(!c)return;let n=c.dataset.n,r=c.dataset.r,k=c.dataset.k;
+ if(e.target.tagName=='I'){let a=pools[r]||[],i=a.findIndex(x=>entKey(x)===k);if(i>=0)a.splice(i,1);renderPool();renderSt();saveNow();prevLater();return}
  hlSt.has(n)?hlSt.delete(n):hlSt.add(n);renderPool();draw()}
 function renderPools(){let pn=poolNames(),used=(cur&&cur.pools)||[];
  $('pools').innerHTML=pn.map(r=>`<div class=poolrow><span class=pn style="color:${pcol(r)}">${esc(plab(r))}</span> <span class=dim>(${(pools[r]||[]).length})</span>${used.includes(r)?'':` <span class=dim>${t('pool.unused')}</span>`}: <span class=chips data-r="${esc(r)}">${chips(pools[r]||[],r)}</span> <button onclick="clearPool('${r}')">${t('btn.clear')}</button>${r=='start'||r=='end'?'':` <button onclick="renamePool('${r}')">${t('pool.rename')}</button> <button onclick="delPool('${r}')">${t('pool.del')}</button>`}</div>`).join('');
- document.querySelectorAll('#pools .chips').forEach(e=>e.onclick=chipClick);
+ document.querySelectorAll('#pools .chips').forEach(e=>{e.onclick=chipClick});
  for(const s of ['swa','swb']){let e=$(s),v=e.value;e.innerHTML=pn.map(r=>`<option value="${esc(r)}">${esc(plab(r))}</option>`).join('');e.value=pn.includes(v)?v:(s=='swa'?pn[0]:pn[1]||pn[0])}
  let pm=pmRole();
  $('pm_box').innerHTML=`<select id=pm onchange=saveLater()>`+pn.map(r=>`<option value="${esc(r)}" ${r==pm?'selected':''}>${esc(plab(r))}</option>`).join('')+`</select>`;
@@ -141,15 +166,15 @@ function renamePool(r){let n=prompt(t('pool.renameQ',{p:r}),r);if(n==null)return
  renderSteps();if(ch)tplChanged();renderPool();renderSt();saveNow()}
 function addPool(){let n=$('newpool').value.trim();if(!/^[A-Za-z_][\w]*$/.test(n)){alert(t('pool.badName'));return}if(!pools[n])pools[n]=[];$('newpool').value='';renderPool();renderSt();refreshStepPools();saveNow()}
 function stratCount(){let roles=(cur&&cur.pools)||[],sz=roles.map(r=>(pools[r]||[]).length),s=$('strategy').value;if(!sz.length)return 0;
- if(s=='cartesian'){let ns=$('noself').checked,c=0,tot=sz.reduce((a,b)=>a*b,1);if(tot>200000)return tot;const rec=(i,used)=>{if(i==roles.length){c++;return}for(const x of pools[roles[i]]||[]){if(ns&&used.includes(x))continue;rec(i+1,used.concat([x]))}};rec(0,[]);return c}
+ if(s=='cartesian'){let ns=$('noself').checked,c=0,tot=sz.reduce((a,b)=>a*b,1);if(tot>200000)return tot;const rec=(i,used)=>{if(i==roles.length){c++;return}for(const x of pools[roles[i]]||[]){let st=entStation(x);if(ns&&used.includes(st))continue;rec(i+1,used.concat([st]))}};rec(0,[]);return c}
  if(s=='round_robin')return Math.max(...sz);return sz[0]}
 function renderPool(){renderPools();setTimeout(renderSum,0);if($('cnt_auto').value=='1')$('cnt').value=stratCount();let roles=(cur&&cur.pools)||[],s=$('strategy').value;$('noreuse_l').style.display=s=='random'?'':'none';
  $('poolline').innerHTML=t('gen.line.'+s,{pools:roles.map(r=>esc(plab(r))+'('+(pools[r]||[]).length+')').join(' × ')})+t('gen.total',{n:`<span style=color:#06c>${$('cnt').value}</span>`})+(s=='random'&&$('noreuse').checked?' · '+t('gen.noreuseShort'):'');saveLater();
  let need=needRoles();
  if(!allSt.length&&roles.some(r=>(pools[r]||[]).length)){$('pre_info').innerHTML=`<span class=dim>${t('pre.loading')}</span>`;draw();return}
- $('pre_info').innerHTML=roles.map(r=>{let a=pools[r]||[],miss=a.filter(e=>!preOf(e));
-  return `<b>${t('pre.of')} · ${esc(plab(r))}</b>: `+a.map(e=>{let al=preAll(e);return esc(e)+'→'+(al.length?'<b>'+esc(al[0])+'</b>'+(al.length>1?'<span class=dim>/'+al.slice(1).map(esc).join('/')+'</span>':''):`<b style=color:${need.has(r)?'red':'#a60'}>${t('pre.none')}</b>`)}).join(' ')+
-  (miss.length?(need.has(r)?`<br><b style=color:red>${t('pre.missNeeded')}: ${esc(miss.join(', '))}</b>`:`<br><span style=color:#a60>⚠ ${t('pre.missUnneeded')}: ${esc(miss.join(', '))}</span>`):'')}).join('<br>');draw()}
+ $('pre_info').innerHTML=roles.map(r=>{let a=pools[r]||[],miss=a.filter(e=>!preOf(entStation(e)));
+  return `<b>${t('pre.of')} · ${esc(plab(r))}</b>: `+a.map(e=>{let st=entStation(e),al=preAll(st);return esc(entLabel(e))+'→'+(al.length?'<b>'+esc(al[0])+'</b>'+(al.length>1?'<span class=dim>/'+al.slice(1).map(esc).join('/')+'</span>':''):`<b style=color:${need.has(r)?'red':'#a60'}>${t('pre.none')}</b>`)}).join(' ')+
+  (miss.length?(need.has(r)?`<br><b style=color:red>${t('pre.missNeeded')}: ${esc(miss.map(entLabel).join(', '))}</b>`:`<br><span style=color:#a60>⚠ ${t('pre.missUnneeded')}: ${esc(miss.map(entLabel).join(', '))}</span>`):'')}).join('<br>');draw()}
 // pools whose stations need a pre-point (an enabled 'pre' step derives from them)
 function stepRef(S,id){let s=S.find(x=>x.id==id);if(s)return s;let m=/^(?:step)?(\d+)$/.exec(id||'');return m?S[+m[1]-1]||null:null}
 function needRoles(){let n=new Set();if(!cur)return n;let S=cur.steps;
@@ -202,15 +227,27 @@ function rawChanged(){let v;try{v=JSON.parse($('tpl_json').value)}catch(e){tplSt
 const OPS=['Wait','ForkLoad','ForkUnload','ForkHeight','Script','JackLoad','JackUnload','none'];
 function locCell(s,i,dis){dis=dis||'';let L=s.location,ty=L.type,pn=poolNames(),opts=cur.steps.map((x,j)=>j==i?'':`<option value="${esc(x.id)}" ${L.step==x.id?'selected':''}>${j+1}. ${esc(x.name||x.id)}</option>`).join('');
  return `<select class=loctype onchange="setLoc(${i},'type',this.value)" ${dis}>${['pool','pre','fixed'].map(x=>`<option value=${x} ${ty==x?'selected':''}>${t('loc.'+x)}</option>`).join('')}</select><br>`+
- (ty=='pool'?poolSelect(L.pool,i,dis):
-  ty=='pre'?`<select class=locstep onchange="setLoc(${i},'step',this.value)" ${dis}><option value="">-</option>${opts}</select><br>`+selCell(L,i,dis):`<input class=locfixed size=10 value="${esc(L.station||'')}" placeholder="LM1" onchange="setLoc(${i},'station',this.value)" ${dis}>`)}
+ (ty=='pool'?poolSelect(L.pool,i,dis)+targetCell(L,i,dis):
+  ty=='pre'?`<select class=locstep onchange="setLoc(${i},'step',this.value)" ${dis}><option value="">-</option>${opts}</select><br>`+selCell(L,i,dis):`<input class=locfixed size=10 value="${esc(L.station||'')}" placeholder="LM1" onchange="setLoc(${i},'station',this.value)" ${dis}>${targetCell(L,i,dis)}`)}
 const PSEL=['nearest','index','name','dir','random'];
-function selCell(L,i,dis){dis=dis||'';let by=L.select||'nearest',arg=L.selArg==null?'':String(L.selArg);
- let h=`<select class=locsel title="${esc(t('sel.tip'))}" onchange="setLoc(${i},'select',this.value)" ${dis}>${PSEL.map(x=>`<option value=${x} ${by==x?'selected':''}>${t('sel.'+x)}</option>`).join('')}</select>`;
+function selCell(L,i,dis,tip){dis=dis||'';tip=tip||'sel.tip';let by=L.select||'nearest',arg=L.selArg==null?'':String(L.selArg);
+ let h=`<select class=locsel title="${esc(t(tip))}" onchange="setLoc(${i},'select',this.value)" ${dis}>${PSEL.map(x=>`<option value=${x} ${by==x?'selected':''}>${t('sel.'+x)}</option>`).join('')}</select>`;
  if(by=='dir')h+=` <select class=locselarg onchange="setLoc(${i},'selArg',this.value)" ${dis}>${['in','out'].map(x=>`<option value=${x} ${arg==x?'selected':''}>${t('pre.dir.'+x)}</option>`).join('')}</select>`;
  else if(by=='index')h+=` <input class=locselarg type=number min=1 style=width:4em value="${esc(arg||'1')}" onchange="setLoc(${i},'selArg',this.value)" ${dis}>`;
  else if(by=='name')h+=` <input class=locselarg size=8 value="${esc(arg)}" placeholder="LM1*" onchange="setLoc(${i},'selArg',this.value)" ${dis}>`;
  return h}
+function sceneStation(n){if(!n)return null;if(stMap[n])return stMap[n];let s=stations.find(x=>x.name==n);return s&&!s.missing&&Array.isArray(s.bins)?s:null}
+function binMax(L){/* max bins on the stations this step can resolve to; null when the scene does not know them */
+ let names=L.type=='fixed'?[String(L.station||'').trim()]:(pools[L.pool]||[]).map(entStation);
+ names=names.filter(Boolean);if(!names.length)return null;let known=false,max=0;
+ for(const n of names){let s=sceneStation(n);if(!s)continue;known=true;max=Math.max(max,stationBins(n).length)}
+ return known?max:null}
+function targetCell(L,i,dis){dis=dis||'';let tgt=L.target=='bin'?'bin':'station';
+ let h=` <select class=loctgt title="${esc(t('tgt.tip'))}" onchange="setLoc(${i},'target',this.value)" ${dis}><option value=station ${tgt=='station'?'selected':''}>${t('tgt.station')}</option><option value=bin ${tgt=='bin'?'selected':''}>${t('tgt.bin')}</option></select>`;
+ if(tgt!='bin')return h;let n=binMax(L);
+ if(n===0)return h+` <span class="dim tgtnote">${esc(t('tgt.noBin'))}</span>`;
+ if(n===1)return h+` <span class="dim tgtnote">${esc(t('tgt.oneBin'))}</span>`;
+ return h+'<br>'+selCell(L,i,dis,'sel.binTip')}
 // pool dropdown for a 'pool' step: every existing pool (display names) + the step's own value if it is not a pool yet.
 // (was <input list=datalist>: browsers filter datalist suggestions by the current value, so only 'start' was offered)
 function poolSelect(v,i,dis){dis=dis||'';let pn=poolNames();if(v&&!pn.includes(v))pn=pn.concat([v]);
@@ -238,7 +275,7 @@ function renderSteps(){stepPoolSig=poolNames().join('|');let tb=$('steps').tBodi
  if(!$('dl_ops')){let d=document.createElement('datalist');d.id='dl_ops';d.innerHTML=OPS.map(o=>`<option value="${o}">`).join('');document.body.appendChild(d)}}
 function setF(i,k,v){let s=cur.steps[i];if(k=='id'){let old=s.id;if(!v||cur.steps.some((x,j)=>j!=i&&x.id==v)){alert(t('step.dupId'));renderSteps();return}cur.steps.forEach(x=>{if(x.location.type=='pre'&&x.location.step==old)x.location.step=v})}
  if(k=='blockSuffix'&&!v)delete s.blockSuffix;else s[k]=v;renderSteps();tplChanged()}
-function setLoc(i,k,v){let L=cur.steps[i].location;if(k=='type'){cur.steps[i].location=v=='pool'?{type:'pool',pool:poolNames()[0]||'start'}:v=='pre'?{type:'pre',step:(cur.steps.find((x,j)=>j!=i&&x.location.type=='pool')||{}).id||''}:{type:'fixed',station:''}}else if(k=='select'){if(v=='nearest'){delete L.select;delete L.selArg}else{L.select=v;L.selArg=v=='dir'?'in':v=='index'?'1':v=='name'?(L.selArg&&L.select=='name'?L.selArg:''):undefined;if(L.selArg===undefined)delete L.selArg}}else L[k]=v.trim();renderSteps();tplChanged()}
+function setLoc(i,k,v){let L=cur.steps[i].location;if(k=='type'){cur.steps[i].location=v=='pool'?{type:'pool',pool:poolNames()[0]||'start'}:v=='pre'?{type:'pre',step:(cur.steps.find((x,j)=>j!=i&&x.location.type=='pool')||{}).id||''}:{type:'fixed',station:''}}else if(k=='target'){delete L.bin;if(v=='bin')L.target='bin';else{delete L.target;delete L.select;delete L.selArg}}else if(k=='select'){if(v=='nearest'){delete L.select;delete L.selArg}else{L.select=v;L.selArg=v=='dir'?'in':v=='index'?'1':v=='name'?(L.selArg&&L.select=='name'?L.selArg:''):undefined;if(L.selArg===undefined)delete L.selArg}}else if(k=='station'){L.station=v.trim();delete L.bin}else if(k=='pool'){L.pool=v.trim();delete L.bin}else L[k]=v.trim();renderSteps();tplChanged()}
 function setArgs(i,ta){let v;try{v=JSON.parse(ta.value||'{}');if(!v||typeof v!='object'||Array.isArray(v))throw new Error(t('step.argsObj'))}catch(e){ta.nextElementSibling.textContent=e.message;return}ta.nextElementSibling.textContent='';cur.steps[i].args=v;tplChanged()}
 function setOpMode(i,v){let s=cur.steps[i];s.opMode=(v==='operation')?'operation':'binTask';if(s.args&&s.args.m4Mode){delete s.args.m4Mode}renderSteps();tplChanged()}
 function setKfs(i,v){let s=cur.steps[i];if(v)s.keepFinalPathSpace=true;else delete s.keepFinalPathSpace;tplChanged()}
@@ -250,7 +287,7 @@ function addStep(){let k=1;while(cur.steps.some(s=>s.id=='step'+k))k++;cur.steps
 function prevLater(){clearTimeout(prevT);prevT=setTimeout(doPreview,300)}
 async function doPreview(){if(!cur)return;let r;try{r=await post('/api/preview',Object.assign(dispCfg(),{template:Object.assign({},cur,{pools:locPools()}),pools}))}catch(e){return}
  if(!r.ok){$('prev_info').innerHTML=`<span class=err>${esc(r.err)}</span>`;$('tpl_prev').textContent='';return}
- $('prev_info').textContent=t('tpl.prevInfo',{p:Object.entries(r.picks).map(([k,v])=>plab(k)+'='+v).join(', ')});$('tpl_prev').textContent=JSON.stringify(r.payload,null,1)}
+ $('prev_info').textContent=t('tpl.prevInfo',{p:Object.entries(r.picks).map(([k,v])=>plab(k)+'='+entLabel(v)).join(', ')});$('tpl_prev').textContent=JSON.stringify(r.payload,null,1)}
 // ---------------- map ----------------
 const C=$('map'),X=C.getContext('2d');let geom=null,pcOff=null,pcK=1;
 function showTab(tb){if(!['cfg','map','rob','ord'].includes(tb))tb='cfg';$('tab').value=tb;document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on',e.id=='tab-'+tb));
@@ -298,10 +335,10 @@ function drawHeadings(){/* station heading arrows (scene 'dir', radians); statio
  for(const s of (allSt.length?allSt:stations)){if(s.x==null||typeof s.dir!='number')continue;let x=tx(s.x),y=ty(s.y),c=Math.cos(s.dir),n=Math.sin(s.dir),ex=x+L*c,ey=y-L*n;
   let col=s.ignoreDir?'#b9a6cf':'#7a3db8';X.strokeStyle=col;X.fillStyle=col;X.beginPath();X.moveTo(x,y);X.lineTo(ex,ey);X.stroke();X.beginPath();X.moveTo(ex,ey);X.lineTo(ex-5*c+3*n,ey+5*n+3*c);X.lineTo(ex-5*c-3*n,ey+5*n-3*c);X.closePath();X.fill()}
  X.restore()}
-function hoverSt(e){if(!$('ly_st').checked){C.title='';return}let best=null,bd=144;for(const s of (allSt.length?allSt:stations)){if(s.x==null)continue;let d=(tx(s.x)-e.offsetX)**2+(ty(s.y)-e.offsetY)**2;if(d<bd){bd=d;best=s}}
- let tt=best?best.name+' ('+best.type+')'+(typeof best.dir=='number'?' · '+t('map.angle')+' '+(best.dirDeg!=null?best.dirDeg:(best.dir*180/Math.PI).toFixed(1))+'°'+(best.ignoreDir?' ('+t('map.ignoreDir')+')':''):''):'';if(C.title!==tt)C.title=tt}
+function hoverSt(e){if(!$('ly_st').checked){C.title='';return}let best=mapHit(e);
+ let bins=best?stationBins(best.name):[];let tt=best?best.name+' ('+best.type+')'+(bins.length?' · '+t('bin.pick')+': '+bins.join(', '):'')+(typeof best.dir=='number'?' · '+t('map.angle')+' '+(best.dirDeg!=null?best.dirDeg:(best.dir*180/Math.PI).toFixed(1))+'°'+(best.ignoreDir?' ('+t('map.ignoreDir')+')':''):''):'';if(C.title!==tt)C.title=tt}
 function drawStations(){let pn=poolNames(),inP={},pre={};
- let alt={};for(const r of pn)for(const n of pools[r]||[]){(inP[n]=inP[n]||[]).push(r);preAll(n).forEach((p,i)=>{pre[p]=pre[p]||{};(pre[p][r]=pre[p][r]||[]).push(n);if(i)alt[p+'|'+n]=1})}
+ let alt={};for(const r of pn)for(const e of pools[r]||[]){let n=entStation(e);if(!n)continue;if(!(inP[n]||[]).includes(r))(inP[n]=inP[n]||[]).push(r);preAll(n).forEach((p,i)=>{pre[p]=pre[p]||{};let arr=pre[p][r]=pre[p][r]||[];if(!arr.includes(n))arr.push(n);if(i)alt[p+'|'+n]=1})}
  for(const s of (allSt.length?allSt:stations)){if(s.x==null||inP[s.name]||pre[s.name])continue;
   X.fillStyle=(s.type.includes('Action')||s.name.startsWith('AP'))?'#06c':'#999';X.beginPath();X.arc(tx(s.x),ty(s.y),3,0,7);X.fill();X.fillStyle='#333';X.fillText(s.name,tx(s.x)+4,ty(s.y)-4)}
  X.save();X.setLineDash([4,3]);X.lineWidth=1.2;
@@ -310,7 +347,7 @@ function drawStations(){let pn=poolNames(),inP={},pre={};
  for(const p in pre){if(inP[p])continue;let a=stPos(p);if(!a)continue;let rs=Object.keys(pre[p]),multi=rs.length>1;
   dot(tx(a.x),ty(a.y),4.5,light(pcol(rs[0])),multi?light(pcol(rs[1])):null,multi?RING:pcol(rs[0]));lbl(p,tx(a.x)+6,ty(a.y)+13,multi?RING:pcol(rs[0]))}
  for(const n in inP){let a=stPos(n);if(!a)continue;let rs=inP[n],b=rs.length>1,x=tx(a.x),y=ty(a.y);
-  dot(x,y,7,pcol(rs[0]),b?pcol(rs[1]):null,b?RING:null);lbl(n,x+9,y-6,b?RING:pcol(rs[0]))}
+  dot(x,y,7,pcol(rs[0]),b?pcol(rs[1]):null,b?RING:null);lbl(n,x+9,y-6,b?RING:pcol(rs[0]));let bs=selectedBins(n);if(bs.length)lbl(bs.join(' · '),x+9,y+8,b?RING:pcol(rs[0]))}
  for(const n of hlSt){let a=stPos(n);if(!a)continue;X.save();X.strokeStyle='#f80';X.lineWidth=3;X.beginPath();X.arc(tx(a.x),ty(a.y),12,0,7);X.stroke();X.restore()}
  drawLegend(pn)}
 function drawLegend(pn){let items=pn.map(r=>['dot',pcol(r),null,null,`${plab(r)} (${(pools[r]||[]).length})`]).concat([['dot',PAL[0],PAL[1],RING,t('lg.multi')]],
@@ -319,7 +356,7 @@ function drawLegend(pn){let items=pn.map(r=>['dot',pcol(r),null,null,`${plab(r)}
  X.font='12px sans-serif';items.forEach((it,i)=>{let y=y0+13+i*17,cx=x0+12;if(it[0]=='pre'){X.save();X.setLineDash([4,3]);X.strokeStyle=it[3];X.beginPath();X.moveTo(cx+5,y);X.lineTo(cx+16,y);X.stroke();X.restore();dot(cx,y,4.5,it[1],null,it[3])}
   else if(it[1]=='#06c'||it[1]=='#999'){X.fillStyle=it[1];X.beginPath();X.arc(cx,y,3,0,7);X.fill()}else dot(cx,y,6,it[1],it[2],it[3]);X.fillStyle='#222';X.fillText(it[4],x0+30,y+4)});X.restore()}
 let drag=null;C.onmousedown=e=>drag={x:e.offsetX,y:e.offsetY,m:0};C.onmousemove=e=>{if(!drag){hoverSt(e);return}let dx=e.offsetX-drag.x,dy=e.offsetY-drag.y;if(Math.abs(dx)+Math.abs(dy)>2)drag.m=1;view.ox+=dx;view.oy+=dy;drag.x=e.offsetX;drag.y=e.offsetY;draw()};
-C.onmouseup=e=>{if(drag&&!drag.m&&$('ly_st').checked){let best=null,bd=144;for(const s of (allSt.length?allSt:stations)){if(s.x==null)continue;let d=(tx(s.x)-e.offsetX)**2+(ty(s.y)-e.offsetY)**2;if(d<bd){bd=d;best=s}}if(best)pick(best.name)}drag=null};
+C.onmouseup=e=>{if(drag&&!drag.m&&$('ly_st').checked){let best=mapHit(e);if(best)pick(best.name)}drag=null};
 C.onmouseleave=()=>drag=null;
 C.onwheel=e=>{e.preventDefault();let f=e.deltaY<0?1.2:1/1.2;view.ox=e.offsetX-(e.offsetX-view.ox)*f;view.oy=e.offsetY-(e.offsetY-view.oy)*f;view.s*=f;draw()};
 // ---------------- generate / drafts ----------------
@@ -328,8 +365,8 @@ function incTag(o){let c=o.inc;if(!c||typeof c!='object')return '';let col=c.sta
  return ` <span style="background:#eef;color:${col};padding:0 3px;font-size:11px" title="${esc(tip)}">${t('inc.tag')} ${c.sent}/${c.total}${c.status=='stopped'?' '+t('inc.stopped')+(c.reason?': '+esc(c.reason):''):c.status=='done'?' ✓':c.warn?' '+t('inc.waiting')+': '+esc(c.warn):''}</span>`}
 async function generate(){if(dirty&&!(await saveTpl()))return;{let pe=preOvParse().errs;if(pe.length){alert(pe.join('\n'));return}}let roles=cur.pools||[];
  let empty=roles.filter(r=>!(pools[r]||[]).length);if(empty.length){alert(t('gen.poolEmpty',{p:empty.map(plab).join(', ')}));return}
- if($('noself').checked&&roles.length>1&&roles.every(r=>pools[r].length==1)&&new Set(roles.map(r=>pools[r][0])).size<roles.length){alert(t('gen.sameOnly'));return}
- let need=needRoles(),miss=[];if(need.size&&!allSt.length&&!(await ensureScene()))return;if(allSt.length)for(const r of need){let m=(pools[r]||[]).filter(e=>!preOf(e));if(m.length)miss.push(plab(r)+': '+m.join(', '))}
+ if($('noself').checked&&roles.length>1&&roles.every(r=>pools[r].length==1)&&new Set(roles.map(r=>entStation(pools[r][0]))).size<roles.length){alert(t('gen.sameOnly'));return}
+ let need=needRoles(),miss=[];if(need.size&&!allSt.length&&!(await ensureScene()))return;if(allSt.length)for(const r of need){let m=(pools[r]||[]).filter(e=>!preOf(entStation(e)));if(m.length)miss.push(plab(r)+': '+m.map(entLabel).join(', '))}
  if(miss.length&&!confirm(t('gen.missQ',{list:miss.join('\n')})))return;
  $('genmsg').textContent=t('gen.running');$('genmsg2').textContent=t('gen.running');
  let r=await post('/api/generate',Object.assign(dispCfg(),{templateName:cur.name,pools,strategy:$('strategy').value,noSelf:$('noself').checked,noReuse:$('noreuse').checked,count:+$('cnt').value,settings:collect()}));

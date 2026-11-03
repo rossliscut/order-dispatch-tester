@@ -130,7 +130,10 @@ def _flatten(raw, srv=None):
     if isinstance(srv, dict):
         for k, v in srv.items():
             if k == "id": continue
-            out[k] = copy.deepcopy(v)
+            if k == "pools" and isinstance(v, dict):
+                out[k] = normalize_pools(v)
+            else:
+                out[k] = copy.deepcopy(v)
         out["id"] = srv.get("id")
     out["lang"] = raw.get("lang") or "zh"
     out["currentServerId"] = (srv or {}).get("id") or sid
@@ -198,6 +201,9 @@ def save_settings(part):
             if k in GLOBAL_KEYS: continue
             if k == "id": continue
             if k == "base" and isinstance(v, str): v = normalize_base(v)
+            if k == "pools" and isinstance(v, dict): v = normalize_pools(v)
+            if k in ("starts", "ends") and isinstance(v, list):
+                v = [T.entry_station(x) for x in v if T.entry_station(x)]
             if isinstance(v, dict) and isinstance(srv.get(k), dict) and k not in ("pools", "pmPool"):
                 srv[k] = dict(srv.get(k) or {}); srv[k].update(v)
             else:
@@ -478,8 +484,9 @@ def migrate_templates():
         names = store.names()
     part = {}
     if not isinstance(st.get("pools"), dict):
-        part["pools"] = {"start": list(st.get("starts") or []), "end": list(st.get("ends") or [])}
+        part["pools"] = normalize_pools({"start": list(st.get("starts") or []), "end": list(st.get("ends") or [])})
         notes.append("pools migrated from starts/ends")
+    notes.extend(migrate_pool_entries())
     act = st.get("activeTemplate")
     if names and (not act or act not in names):
         part["activeTemplate"] = names[0]
@@ -865,12 +872,35 @@ def resolve_template(b):
     if t is None: raise ValueError("template not found: " + name)
     return t
 
+def normalize_pools(pools):
+    """Canonical pool map. Strings stay strings; ``{station}`` without a bin becomes a string; ``{station, bin}`` is kept."""
+    if not isinstance(pools, dict): return pools
+    return {str(k): T.normalize_pool_list(v if isinstance(v, list) else []) for k, v in pools.items() if isinstance(k, str)}
+
+def migrate_pool_entries():
+    """Rewrite each server's pools into the canonical shape. Idempotent; no note when nothing changes."""
+    notes = []
+    with lock:
+        raw = _read_raw()
+        if not _is_v2(raw): return notes
+        changed = False
+        for s in raw.get("servers") or []:
+            if not isinstance(s, dict) or not isinstance(s.get("pools"), dict): continue
+            norm = normalize_pools(s["pools"])
+            if norm != s["pools"]:
+                s["pools"] = norm
+                changed = True
+        if changed:
+            _write_raw(raw)
+            notes.append("pools normalized (station/bin entries)")
+    return notes
+
 def cfg_pools(b, t):
-    """{pool: [stations]} for the template's pools (deduplicated). Legacy startPool/endPool accepted."""
+    """{pool: [station | {station, bin?}]} for the template's pools (deduplicated). Legacy startPool/endPool accepted."""
     pools = dict(b.get("pools") or {})
     if b.get("startPool") is not None: pools["start"] = b["startPool"]
     if b.get("endPool") is not None: pools["end"] = b["endPool"]
-    return {r: list(dict.fromkeys(pools.get(r) or [])) for r in T.pool_roles(t)}
+    return {r: T.normalize_pool_list(pools.get(r) or []) for r in T.pool_roles(t)}
 
 def prepare_cfg(b):
     """validate pools + pre-points. returns (cfg, template, pools, warn, err)"""
@@ -885,7 +915,7 @@ def prepare_cfg(b):
     if not roles: return b, t, pools, "", msg("srv.noPoolStep")
     empty = [r for r in roles if not pools[r]]
     if empty: return b, t, pools, "", msg("srv.poolEmpty", pools=", ".join(empty))
-    if b.get("noSelf", True) and len(roles) > 1 and all(len(pools[r]) == 1 for r in roles) and len({pools[r][0] for r in roles}) < len(roles):
+    if b.get("noSelf", True) and len(roles) > 1 and all(len(pools[r]) == 1 for r in roles) and len({T.entry_station(pools[r][0]) for r in roles}) < len(roles):
         return b, t, pools, "", msg("srv.sameOnly")
     warn = []
     need = T.needed_pre_roles(t)
@@ -894,25 +924,55 @@ def prepare_cfg(b):
         if err and not S["prepoints"] and not b.get("preOverrides"): return b, t, pools, "", msg("srv.sceneFail", err=err)
         for r in roles:
             if r not in need: continue
-            miss = sorted({x for x in pools[r] if not pre_point(x, b)})
-            if miss:
-                warn.append(msg("srv.noPre", pool=r, list=", ".join(miss))); log("no_prepoint", pool=r, stations=miss)
-                pools[r] = [x for x in pools[r] if x not in miss]
+            miss_e = [x for x in pools[r] if not pre_point(T.entry_station(x), b)]
+            if miss_e:
+                miss = sorted({T.entry_label(x) for x in miss_e})
+                gone = {T.entry_station(x) for x in miss_e}
+                warn.append(msg("srv.noPre", pool=r, list=", ".join(miss))); log("no_prepoint", pool=r, stations=sorted(gone))
+                pools[r] = [x for x in pools[r] if T.entry_station(x) not in gone]
                 if not pools[r]: return b, t, pools, "", "\n".join(warn) + " " + msg("srv.poolNowEmpty", pool=r)
     return b, t, pools, "\n".join(warn), ""
 
+def _use_bin_targets():
+    """Bin names are M4 step locations only. RDS keeps sending the station."""
+    return AD().name == "m4"
+
+def station_bins(name):
+    """Bin names bound to one station in the loaded scene, in list order. Empty when unknown or none.
+    The current geom wins over an older station cache. This is not every bin on the map."""
+    if not name: return []
+    rows = []
+    g = S.get("geom") or {}
+    if isinstance(g, dict): rows.extend(g.get("stations") or [])
+    cache = S.get("st_cache")
+    if isinstance(cache, (list, tuple)) and len(cache) == 2 and isinstance(cache[1], list):
+        rows.extend(cache[1])
+    for q in rows:
+        if not isinstance(q, dict) or q.get("name") != name: continue
+        b = q.get("bins") or []
+        if not isinstance(b, list): return []
+        out, seen = [], set()
+        for x in b:
+            n = str(x or "").strip()
+            if n and n not in seen: seen.add(n); out.append(n)
+        return out
+    return []
+
 def make_draft(picks, t, cfg, oid=None):
-    """neutral order -> adapter payload -> draft record (ValueError: missing pre-point)"""
-    order = T.build_order(t, picks, cfg, lambda n: pre_point(n, cfg), oid, cands_of=lambda n: pre_cands(n, cfg))
+    """neutral order -> adapter payload -> draft record (ValueError: missing pre-point or bin selector)"""
+    order = T.build_order(t, picks, cfg, lambda n: pre_point(n, cfg), oid, cands_of=lambda n: pre_cands(n, cfg), bin_targets=_use_bin_targets(), bins_of=station_bins)
     body = AD().build_payload(order)
     roles = T.pool_roles(t)
     g = lambda x: "%g" % x if isinstance(x, (int, float)) else str(x)
     vsTag = ",".join("%s%s/%s" % (st["name"], g(st["variableShape"].get("head")), g(st["variableShape"].get("tail")))
                      for st in order["steps"] if isinstance(st.get("variableShape"), dict))
     first, last = (picks.get(roles[0], ""), picks.get(roles[-1], "")) if roles else ("", "")
-    now = time.time(); dpre = pre_point(last, cfg)
-    return {"id": body["id"], "pair": [picks[r] for r in roles], "picks": dict(picks), "template": t.get("name"), "adapter": AD().name,
-            "pre": dpre, "dropPre": dpre, "pickPre": pre_point(first, cfg) if len(roles) > 1 else "", "preChosen": order.get("preChosen") or [],
+    now = time.time(); dpre = pre_point(T.entry_station(last), cfg)
+    stored = {}
+    for r in roles:
+        stored[r] = T.normalize_entry(picks.get(r, "")) or ""
+    return {"id": body["id"], "pair": [T.entry_label(picks[r]) for r in roles], "picks": stored, "template": t.get("name"), "adapter": AD().name,
+            "pre": dpre, "dropPre": dpre, "pickPre": pre_point(T.entry_station(first), cfg) if len(roles) > 1 else "", "preChosen": order.get("preChosen") or [], "binChosen": order.get("binChosen") or [],
             "vsTag": vsTag, "vehicle": body.get("vehicle", ""), "group": body.get("group", ""), "state": DRAFT,
             "sent": now, "changed": now, "created": now, "sig": "", "error": None, "body": body}
 
@@ -920,9 +980,11 @@ def preview(b):
     """sample order for the template editor: first station of each pool (or placeholders)"""
     t = resolve_template(b); roles = T.pool_roles(t); pools = cfg_pools(b, t)
     picks = {}
+    seen = set()
     for i, r in enumerate(roles):
-        cand = [x for x in pools.get(r, []) if x not in picks.values()] or pools.get(r) or ["<%s>" % r]
+        cand = [x for x in pools.get(r, []) if T.entry_station(x) not in seen] or pools.get(r) or ["<%s>" % r]
         picks[r] = cand[0]
+        seen.add(T.entry_station(picks[r]))
     def pre(n): return pre_point(n, b) or ("<pre:%s>" % n if b.get("placeholderPre", True) else "")
     if "preOverridesText" in b:
         ov, perr = parse_pre_text(b.get("preOverridesText"))
@@ -931,7 +993,7 @@ def preview(b):
     def cands(n):
         c = pre_cands(n, b)
         return c if c else None  # no scene yet -> placeholder via pre()
-    order = T.build_order(t, picks, b, pre, "dl-preview", cands_of=cands, lenient=b.get("placeholderPre", True) and not S["prepoints"])
+    order = T.build_order(t, picks, b, pre, "dl-preview", cands_of=cands, lenient=b.get("placeholderPre", True) and not S["prepoints"], bin_targets=_use_bin_targets(), bins_of=station_bins)
     return {"ok": True, "picks": picks, "order": order, "payload": AD().build_payload(order)}
 
 # ---------------------------------------------------------------- persistence
@@ -1152,12 +1214,12 @@ def generate_drafts(cfg, t, pools, rng=None, id_factory=None):
         try: picks = picker.next()
         except ValueError as e: skipped.append({"pair": [], "err": str(e)}); break
         try: rec = make_draft(picks, t, cfg, id_factory() if id_factory else None)
-        except ValueError as e: skipped.append({"pair": [picks[r] for r in roles], "err": str(e)}); continue
+        except ValueError as e: skipped.append({"pair": [T.entry_label(picks[r]) for r in roles], "err": str(e)}); continue
         with lock: S["orders"][rec["id"]] = rec
         made.append(rec["id"])
     save_drafts()
     first = roles[0] if roles else None
-    no_pick = sorted({s for s in pools.get("start", []) if not pre_point(s, cfg)}) if "start" in roles and "start" not in T.needed_pre_roles(t) else []
+    no_pick = sorted({T.entry_station(s) for s in pools.get("start", []) if not pre_point(T.entry_station(s), cfg)}) if "start" in roles and "start" not in T.needed_pre_roles(t) else []
     log("generate", n=len(made), template=t.get("name"), strategy=cfg.get("strategy") or "random", ids=made, skipped=skipped, pools=pools,
         noSelf=cfg.get("noSelf"), noReuse=cfg.get("noReuse"))
     return {"n": len(made), "ids": made, "skipped": skipped, "noPickPre": no_pick}
@@ -1179,13 +1241,13 @@ def swap_drafts(ids, cfg, t):
             picks = dict(zip(roles, vals))
             ocfg = dict(cfg, group=(o.get("body") or {}).get("group", ""))
         try: rec = make_draft(picks, tt, ocfg, oid)
-        except ValueError as e: errs.append({"id": oid, "pair": vals, "err": str(e)}); continue
+        except ValueError as e: errs.append({"id": oid, "pair": [T.entry_label(v) for v in vals], "err": str(e)}); continue
         with lock:
             cur = S["orders"].get(oid)
             if not cur or cur["state"] != DRAFT: errs.append({"id": oid, "err": msg("srv.changed")}); continue
             rec["created"] = cur.get("created", rec["created"]); rec["swapped"] = cur.get("swapped", 0) + 1
             S["orders"][oid] = rec
-        done.append({"id": oid, "pair": vals})
+        done.append({"id": oid, "pair": [T.entry_label(v) for v in vals]})
     save_drafts(); log("swap_drafts", done=done, errors=errs)
     return {"n": len(done), "done": done, "errors": errs}
 
@@ -1349,7 +1411,9 @@ def dispatcher(t, pools):
         except ValueError as e:
             log("order_skip", picks=picks, err=str(e)); now = time.time(); sid = "skip-" + uuid.uuid4().hex[:8]
             with lock:
-                S["orders"][sid] = {"id": sid, "pair": [picks[r] for r in roles], "picks": picks, "vehicle": "", "state": "SKIPPED", "sent": now, "changed": now, "sig": "", "error": str(e), "body": None}
+                S["orders"][sid] = {"id": sid, "pair": [T.entry_label(picks[r]) for r in roles],
+                                   "picks": {r: (T.normalize_entry(picks[r]) or "") for r in roles},
+                                   "vehicle": "", "state": "SKIPPED", "sent": now, "changed": now, "sig": "", "error": str(e), "body": None}
                 S["sent"] += 1
             continue
         ok, err = submit_record(rec, inc_enabled(cfg)); now = time.time()

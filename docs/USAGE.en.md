@@ -33,6 +33,7 @@ The sub-tabs at the top switch between pages; the current sub-tab is remembered 
 - **Load stations from scene** (从调度系统场景加载站点): **the only manual entry point for loading the scene**. In one go it pulls the stations, pre-points, robot groups, scene geometry (routes tessellated by curve type) and point cloud from the active dispatcher (RDS: `/scene` `normalPosList`, `/downloadScene` when needed; M4: `normalPosList` in the scene schema, else `GET /api/fleet/scenes/{sceneId}/download/{mapFile}` from `groupsMap.mapFile`), and it always fetches afresh; the Map tab reuses the result directly (see section 7).
 - The station table is read-only: it can be searched and filtered by type, shows positions and pre-points, and lists only stations already in a pool (see "Station list on the Pools tab (read-only)" below). Stations can be added to a pool in only two ways: click a station on the **Map** tab, or use **Paste stations manually** (comma/newline separated station names).
 - **Station pools**: the defaults are `start` and `end`. You can create any pool (letters/digits/underscore, not starting with a digit) with **New pool**, **Rename** it (custom pools; references in templates are updated accordingly), **Delete pool**, **Swap** two pools, and click × to remove a single station. Pools the current template does not use are marked "(not used by the template)".
+- **Bins (only M4 writes the resolved bin name into step `location`)**: a bin is not its own station. It hangs off a station's `bins` list (for example LM3953 → `Loc-7-1`, `Loc-7-2`). Station pools hold **station names** only (left-click on the map adds or removes one; × on a chip removes it). The template does **not** offer a dropdown of bin names. Beside **Pool** and **Fixed station**, after the station is resolved, choose **Station** or **Bin** (`location.target` omitted or `station` = Station, `bin` = Bin). **Bin** applies the same selection as a pre-point (`select` / `selArg`: nearest, by number, by name / wildcard, by direction, random per order) to **that station's** bins only, not to every bin on the map. Zero bins on the station: Bin cannot be used, and generation falls back to the station. One bin: no selector is shown; that bin is used. Several bins: the same selector as a pre-point is shown. Pre-points and **No repeated station within an order** still use the **station** picked from the pool. On generate, **only M4** writes the resolved bin name into the step `location`, with no extra `rbkArgs` key; RDS still sends the station name even when the step goes to a bin. This is separate from action mode `binTask`: `binTask` only chooses whether the action is a name, or a name plus args. It does not choose a bin. An old template that stored `location.bin="Loc-…"` drops that concrete name on validate and stays on **Station** (it is not switched to **Bin**); the `bin` field disappears from disk the next time the template is saved. A bin still stored on an old pool entry is only a label in the Stations column (`station · bin`); it is not the step's M4 target. After the scene is stored (the cache on page open, a manual load, or the cache after switching servers), an open template redraws its step table, so the selector appears when a station has several bins, and the 0/1-bin notes appear otherwise, without reselecting the template.
 - **"In use" pools** only look at **enabled** steps: the pools used by enabled `Pool` steps, and the pools that enabled `Pre-point of step` steps finally point to (following the reference chain). A pool referenced only by disabled steps (for example `start` in a "drop-only" template where the pick and pre-point Wait steps are both disabled and only the drop is kept) does not count as in use: it is not shown in the summary, generating/auto dispatch does not require it to be non-empty, and the order's Stations column shows only the end station (with `pickPre` empty). The empty-pool validation (frontend and backend) applies only to pools in use.
 - **Strategy** (生成策略): Random (no reuse) (随机不重复; default count = size of the first pool), Round-robin (轮询; order i takes the i-th station of each pool, count = largest pool), Cartesian product (全组合).
 - Options: "No repeated station within an order"; "Avoid reusing stations within a batch (sampling without replacement)".
@@ -59,8 +60,8 @@ Step columns: location → **Mode** → **Action** (single input) → **Args** (
 | On (启用) | Disabled steps generate no block |
 | ID | **Required**; unique within the template, must not be empty or duplicated; used for variable references. Default block/step suffix is `-<ID>` (UI edits only ID; if an old template still has `blockSuffix`, generation still honors it) |
 | Note (说明; step `name`) | Optional display text (may be Chinese); may be empty — save/validate do not require it. Distinct from the template-level Description (`title`) |
-| Location (位置来源) `location` | `Pool` (站点池; `{"type":"pool","pool":"<pool name>"}`, picks a station from the pool according to the strategy; the dropdown lists all pools); `Pre-point of step` (另一步骤站点的前置点; `{"type":"pre","step":"<step ID>"}`, looks up the manual map first, then derives AP→LM from the scene); `Fixed station` (固定站点; `{"type":"fixed","station":"<station>"}`) |
-| Pre-point selection `select` / `selArg` | `pre` steps only. Which candidate to use when the station has several candidate pre-points; see "Multiple pre-points" below |
+| Location (位置来源) `location` | `Pool` (站点池; `{"type":"pool","pool":"<pool name>","target":"station\|bin"}`, picks a station from the pool; omitted `target` or `station` = Station, `bin` = Bin); `Pre-point of step` (另一步骤站点的前置点; `{"type":"pre","step":"<step ID>"}`, looks up the manual map first, then derives AP→LM from the scene; the lookup uses the **station**); `Fixed station` (固定站点; `{"type":"fixed","station":"<station>","target":"station\|bin"}`). A concrete bin name is not stored |
+| Selection `select` / `selArg` | `pre` steps, and a **Bin** step when that station has several bins. Same choices as a pre-point (nearest / by number / by name / by direction / random per order); see "Multiple pre-points" and "Go to a bin" below |
 | Operation (动作) `operation` | For example `JackLoad`, `JackUnload`, `ForkLoad`, `Wait`, `Script`; `none` means move only |
 | Action mode `opMode` (动作模式) | `binTask` (name only) or `operation` (name + args); shared by M4/RDS; mix per step. New steps default to `binTask`. If omitted: M4 falls back to profile/`binTask`, RDS falls back to `operation` (legacy templates) |
 | Args (JSON) (参数 args) | Must be a JSON object; multi-line edit box, its height can be dragged vertically. Hidden and ignored when `opMode=binTask` |
@@ -68,7 +69,7 @@ Step columns: location → **Mode** → **Action** (single input) → **Args** (
 | Keep final path space (保持末段空间资源不释放) keepFinalPathSpace | Column shown for M4 only; when ticked the step is sent with `keepFinalPathSpace: true` (M4 order-step field "保持末段空间资源不释放", keep the last path segment's space reserved); unticked = field not sent. Hidden when Dispatcher is RDS |
 
 **args variables** (substituted inside strings; an unknown variable is an error):
-`{start}` `{end}` `{<pool>}` the station picked from that pool for this order; `{pickPre}` `{dropPre}` the pre-points of the start/end stations; `{pre:<pool>}` the pre-point of that pool's station; `{stationOf:<step ID|stepN>}` the station of a step; `{preOf:<step>}` the pre-point of a step's station; `{orderId}` the order ID.
+`{start}` `{end}` `{<pool>}` the target picked from that pool for this order: on M4, the **resolved bin name** when that pool step goes to a bin, otherwise the station name; `{pickPre}` `{dropPre}` the pre-points of the start/end **stations**; `{pre:<pool>}` the pre-point of that pool's station; `{stationOf:<step ID|stepN>}` the **station** of a step (the LM/AP, even when that step's `location` is a bin name); `{preOf:<step>}` the pre-point of a step's station; `{orderId}` the order ID.
 
 ### Multiple pre-points (pre-point selection strategy)
 
@@ -91,6 +92,22 @@ When the scene is loaded, **all** candidate pre-points of each station are store
 - The pre-point actually chosen is recorded for each order (`preChosen` in the order record); when the Test Orders tab's Stations column shows ⓟ, hover over it to see "step: station → pre-point (strategy)".
 - Example: `examples/templates/pre_select_demo.json`.
 
+### Go to a bin (same selection as a pre-point)
+
+**Pool** / **Fixed station** resolve a station first, then choose **Station** or **Bin**. **Bin** does not list `Loc-…` names. When that station has several bins, the selector is the pre-point one (`location.select` / `location.selArg`, parsed by the same `parse_sel` / `pick_pre`):
+
+| Strategy | select / selArg | Meaning for bins |
+|---|---|---|
+| nearest (default) | omitted, or `nearest` | the first name in that station's `bins` list |
+| by number | `index` / `2` | the Nth bin (1-based) |
+| by name / wildcard | `name` / `Loc-*` | the first bin whose name equals the pattern or matches the wildcard |
+| by direction | `dir` / `in` or `out` | the first candidate whose `dir` is in/out. Scene bins are usually names only, so this matches nothing |
+| random per order | `random` | one bin of **that station** per order (not every bin on the map) |
+
+- Zero bins: fall back to the station; `binChosen` records `fallback` `station`. One bin: `select` is `only`, and the criteria above are ignored. Several bins and no match: generation fails, naming the step, station, strategy and candidates, for example `no bin matches name=XX* for station AP1 [step pick]`.
+- Within one order, the same station + the same strategy is chosen only once (also for random). The bin actually chosen is recorded in `binChosen`.
+- Only M4 writes that bin name into the step `location`. RDS `location` stays the station name; `binChosen` still shows what was resolved.
+
 The built-in `default` template = the original five-block RDS deadlock test order (pre-point Wait → pick → Script → drop → fork lift). On first install it is created only when no templates exist yet. **Adding a server** also writes `default` under that server's `templates/<serverId>/` and sets it active; if the user later deletes every template, the empty list is left alone (no re-seed).
 
 ## Map tab
@@ -98,7 +115,7 @@ The built-in `default` template = the original five-block RDS deadlock test orde
 - Layers (**Point cloud**, **Routes**, **Stations**, **Vehicles**): next to Point cloud you can choose the point size thin / medium / bold / extra bold (screen pixels, unchanged when zooming); the choice is saved (settings + browser).
 - The **Station heading** layer: stations that have an angle in the scene get a purple heading arrow (RDS field `dir`, in radians; `angle`/`theta`/`yaw` are also recognized); stations without an angle are not drawn; stations with `ignoreDir=true` ("ignoreDir: any heading") get a light-colored arrow; hovering over a station shows its name, type and angle (degrees). Angles are saved with the scene cache.
 - Point cloud and routes both come from the scene load (see section 7); the Map tab **no longer offers** manual **Upload .smap** or a local path. Both RDS and M4 pull the scene map from the connected dispatcher. The Map tab itself does not trigger a scene load.
-- With the Stations layer on, station names are drawn; LM and AP are both clickable into pools (same for M4 and RDS). M4 routes are tessellated from the scene curve type (Straight / Bezier / DegenerateBezier / NURBS / Arc, etc.), not drawn as straight endpoint links.
+- With the Stations layer on, station names are drawn to the right of each dot; LM and AP are both added or removed from the current pool with a left-click on the dot or on its name. When an LM name sits next to an AP, the hit prefers the LM/Location point over the AP/Action point. The map does not pick a bin. M4 routes are tessellated from the scene curve type (Straight / Bezier / DegenerateBezier / NURBS / Arc, etc.), not drawn as straight endpoint links.
 
 ## 4. Robots
 
@@ -207,6 +224,12 @@ The tool can also drive an M4 fleet server instead of RDS. RDS stays the default
 4. **Action mode** is chosen **per step** on **Template** (订单模板) (no global "step action field" on the right). `binTask` sends `rbkArgs: {"binTask": <operation>}` (no ordinary args); `operation` sends `rbkArgs: {"operation": <operation>, ...args}`. Script steps always use `operation: "Script"`. A leftover stored `opMode` is only a default fallback; the UI no longer edits it.
 
 The app key and password are stored only in the local, gitignored `settings.json`. They are masked as `******` in the UI, in `/api/settings` and `/api/m4`, and they never appear in the logs. Leaving `******` in a field keeps the stored value. As an alternative, the environment variables `ODT_M4_APP_ID`, `ODT_M4_APP_KEY`, `ODT_M4_USER`, `ODT_M4_PASSWORD` and `ODT_M4_SCENE` fill in any field that is empty in the connection.
+
+### Bins as targets (not the same as binTask)
+- A **bin** is a navigation/work target. Its name comes from the scene `mergedMap.bins` and is stored on the work point's `bins` list (for example `Loc-7-1` on LM3953). It is not a separate map point, and the template does not ask the user to pick those names.
+- When a step goes to a **Bin**, the M4 step `location` is the **bin name string** resolved from that station's bins and the selection criteria. No extra key is added under `rbkArgs`. Pre-points are still derived from the station (the LM/AP). A station with no bins falls back to the station name.
+- **`opMode=binTask`** is only the action mode: `rbkArgs` is `{"binTask": <action name>}`. It can be used on an order that also goes to a bin, but one does not stand in for the other. `m4BinTask` is an alias that replaces the action name; it is not a bin id.
+- RDS shares the same pool storage, but its payload `location` stays the station name.
 
 ### Per-step hints (template step `args` / `opMode`)
 - Step field `opMode`: `"binTask"` or `"operation"` (primary; shared by M4 and RDS).
