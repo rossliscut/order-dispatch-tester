@@ -114,6 +114,28 @@ class M4UiTest(unittest.TestCase):
         zh = json.load(open(os.path.join(D, "i18n", "zh.json"), encoding="utf-8")); en = json.load(open(os.path.join(D, "i18n", "en.json"), encoding="utf-8"))
         self.assertEqual(set(zh), set(en))
 
+class BinTargetUiTest(unittest.TestCase):
+    def test_bin_picker_and_i18n(self):
+        js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
+        html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
+        self.assertIn("function openBinMenu(", js)
+        self.assertIn("function entStation(", js)
+        self.assertIn("select.binpick", js)
+        self.assertIn("function binSelect(", js)
+        self.assertIn("#binmenu", html)
+        i = js.index("function renderSt(")
+        body = js[i:js.index("let hlSt", i)]
+        self.assertNotIn("pick(", body)  # station table stays read-only; bins are chosen on the map / chip
+        for l in ("zh", "en"):
+            d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
+            for k in ("bin.menu", "bin.none", "bin.pick", "bin.stationOnly", "bin.vsTask"):
+                self.assertTrue(d.get(k), (l, k))
+        en = json.load(open(os.path.join(D, "i18n", "en.json"), encoding="utf-8"))
+        self.assertEqual(en["bin.none"], "No bin")
+        self.assertEqual(en["bin.stationOnly"], "Station only")
+        self.assertEqual(en["bin.pick"], "Bin")
+        self.assertTrue(en["bin.menu"].startswith("Choose a bin"))
+
 class MapToolbarTest(unittest.TestCase):
     def test_no_manual_smap_upload_or_path(self):
         html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
