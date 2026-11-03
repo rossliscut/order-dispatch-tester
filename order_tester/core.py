@@ -937,9 +937,30 @@ def _use_bin_targets():
     """Bin names are M4 step locations only. RDS keeps sending the station."""
     return AD().name == "m4"
 
+def station_bins(name):
+    """Bin names bound to one station in the loaded scene, in list order. Empty when unknown or none.
+    The current geom wins over an older station cache. This is not every bin on the map."""
+    if not name: return []
+    rows = []
+    g = S.get("geom") or {}
+    if isinstance(g, dict): rows.extend(g.get("stations") or [])
+    cache = S.get("st_cache")
+    if isinstance(cache, (list, tuple)) and len(cache) == 2 and isinstance(cache[1], list):
+        rows.extend(cache[1])
+    for q in rows:
+        if not isinstance(q, dict) or q.get("name") != name: continue
+        b = q.get("bins") or []
+        if not isinstance(b, list): return []
+        out, seen = [], set()
+        for x in b:
+            n = str(x or "").strip()
+            if n and n not in seen: seen.add(n); out.append(n)
+        return out
+    return []
+
 def make_draft(picks, t, cfg, oid=None):
-    """neutral order -> adapter payload -> draft record (ValueError: missing pre-point)"""
-    order = T.build_order(t, picks, cfg, lambda n: pre_point(n, cfg), oid, cands_of=lambda n: pre_cands(n, cfg), bin_targets=_use_bin_targets())
+    """neutral order -> adapter payload -> draft record (ValueError: missing pre-point or bin selector)"""
+    order = T.build_order(t, picks, cfg, lambda n: pre_point(n, cfg), oid, cands_of=lambda n: pre_cands(n, cfg), bin_targets=_use_bin_targets(), bins_of=station_bins)
     body = AD().build_payload(order)
     roles = T.pool_roles(t)
     g = lambda x: "%g" % x if isinstance(x, (int, float)) else str(x)
@@ -951,7 +972,7 @@ def make_draft(picks, t, cfg, oid=None):
     for r in roles:
         stored[r] = T.normalize_entry(picks.get(r, "")) or ""
     return {"id": body["id"], "pair": [T.entry_label(picks[r]) for r in roles], "picks": stored, "template": t.get("name"), "adapter": AD().name,
-            "pre": dpre, "dropPre": dpre, "pickPre": pre_point(T.entry_station(first), cfg) if len(roles) > 1 else "", "preChosen": order.get("preChosen") or [],
+            "pre": dpre, "dropPre": dpre, "pickPre": pre_point(T.entry_station(first), cfg) if len(roles) > 1 else "", "preChosen": order.get("preChosen") or [], "binChosen": order.get("binChosen") or [],
             "vsTag": vsTag, "vehicle": body.get("vehicle", ""), "group": body.get("group", ""), "state": DRAFT,
             "sent": now, "changed": now, "created": now, "sig": "", "error": None, "body": body}
 
@@ -972,7 +993,7 @@ def preview(b):
     def cands(n):
         c = pre_cands(n, b)
         return c if c else None  # no scene yet -> placeholder via pre()
-    order = T.build_order(t, picks, b, pre, "dl-preview", cands_of=cands, lenient=b.get("placeholderPre", True) and not S["prepoints"], bin_targets=_use_bin_targets())
+    order = T.build_order(t, picks, b, pre, "dl-preview", cands_of=cands, lenient=b.get("placeholderPre", True) and not S["prepoints"], bin_targets=_use_bin_targets(), bins_of=station_bins)
     return {"ok": True, "picks": picks, "order": order, "payload": AD().build_payload(order)}
 
 # ---------------------------------------------------------------- persistence

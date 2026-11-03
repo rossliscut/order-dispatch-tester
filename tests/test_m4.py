@@ -67,9 +67,14 @@ class AdapterTest(Base):
         self.assertEqual(ad.build_step({"id": "o"}, dict(st, args={}))["rbkArgs"], {"operation": "ForkLoad"})
 
     def test_bin_target_create_body_snapshot(self):
-        """Pool/fixed bin -> M4 step location is the bin name. binTask rbkArgs stays action-only. Pre uses the station."""
-        picks = {"start": {"station": "AP1", "bin": "Loc-7-1"}, "end": {"station": "AP2", "bin": "Loc-7-2"}}
-        rec = C.make_draft(picks, self.t, {}, "m4-bin1")
+        """走库位 + the station's bins -> M4 step location is that bin name. binTask rbkArgs stays action-only. Pre uses the station."""
+        t = json.loads(json.dumps(self.t))
+        for s in t["steps"]:
+            if s["id"] in ("s", "e"): s["location"]["target"] = "bin"
+        self.assertEqual(T.validate(t), [])
+        C.S["geom"] = {"stations": [{"name": "AP1", "bins": ["Loc-7-1"]}, {"name": "AP2", "bins": ["Loc-7-2"]}]}
+        picks = {"start": {"station": "AP1", "bin": "IGNORED"}, "end": {"station": "AP2", "bin": "IGNORED-2"}}
+        rec = C.make_draft(picks, t, {}, "m4-bin1")
         steps = rec["body"]["steps"]
         self.assertEqual([s["location"] for s in steps], ["LM1", "Loc-7-1", "LM2", "Loc-7-2", "LM2"])
         load = [s for s in steps if s.get("rbkArgs", {}).get("binTask") == "ForkLoad"][0]
@@ -79,16 +84,18 @@ class AdapterTest(Base):
         self.assertNotIn("bin", load["rbkArgs"]); self.assertNotIn("Loc-7-1", json.dumps(load["rbkArgs"]))
         scr = [s for s in steps if s.get("rbkArgs", {}).get("operation") == "Script"][0]
         self.assertEqual(scr["rbkArgs"]["script_args"]["locName"], "Loc-7-2")  # {end} follows the M4 target
-        self.assertEqual(rec["pair"], ["AP1 · Loc-7-1", "AP2 · Loc-7-2"])
+        self.assertEqual(rec["pair"], ["AP1 · IGNORED", "AP2 · IGNORED-2"])  # pool-entry bin is a label, not the target
         self.assertEqual(rec["picks"], picks)
         self.assertEqual(rec["pickPre"], "LM1"); self.assertEqual(rec["dropPre"], "LM2")
+        self.assertEqual([c["select"] for c in rec["binChosen"]], ["only", "only"])
         ok, err = C.AD().submit(rec["body"]); self.assertTrue(ok, err)
         with fake_m4.LOCK: got = fake_m4.RECEIVED[-1]
         self.assertEqual([s["location"] for s in got["steps"]], ["LM1", "Loc-7-1", "LM2", "Loc-7-2", "LM2"])
         self.assertEqual(got["steps"][1]["rbkArgs"], {"binTask": "ForkLoad"})
-        # RDS shares the pool entry but still sends the station name
+        # RDS still sends the station even when the step goes to a bin
         C.save_settings({"adapter": "rds"}); C.set_adapter("rds"); C.S["prepoints"] = dict(PREPOINTS)
-        rds = C.make_draft(picks, self.t, {}, "rds-bin1")["body"]
+        C.S["geom"] = {"stations": [{"name": "AP1", "bins": ["Loc-7-1"]}, {"name": "AP2", "bins": ["Loc-7-2"]}]}
+        rds = C.make_draft(picks, t, {}, "rds-bin1")["body"]
         self.assertEqual([s["location"] for s in rds["blocks"]], ["LM1", "AP1", "LM2", "AP2", "LM2"])
         self.assertEqual([s for s in rds["blocks"] if s["blockId"].endswith("-e_SCRIPT")][0]["script_args"]["locName"], "AP2")
 

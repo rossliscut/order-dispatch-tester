@@ -112,7 +112,7 @@ function mapHit(e){/* dot within HIT_R, or inside the name label. If an LM/Locat
  for(const s of list){if(s.x==null)continue;let sx=tx(s.x),sy=ty(s.y),dot=(sx-px)**2+(sy-py)**2,lab=nameLabel(s,sx,sy);
   let inLab=px>=lab.x&&px<=lab.x+lab.w&&py>=lab.y&&py<=lab.y+lab.h;if(dot<=r2||inLab)hits.push({s,d:inLab?0:dot,lm:isLmStation(s)})}
  if(!hits.length)return null;let lms=hits.filter(h=>h.lm),pool=lms.length?lms:hits;pool.sort((a,b)=>a.d-b.d);return pool[0].s}
-function pick(n,role){/* map click toggles the station only. Attach a bin on the template or the pool chip. */
+function pick(n,role){/* map click toggles the station only. Go-to-bin is a template step choice, not a named bin here. */
  role=role||pmRole();let a=pools[role]||(pools[role]=[]);
  if(a.some(e=>entStation(e)===n)){for(let i=a.length-1;i>=0;i--)if(entStation(a[i])===n)a.splice(i,1)}
  else a.push(n);
@@ -227,19 +227,27 @@ function rawChanged(){let v;try{v=JSON.parse($('tpl_json').value)}catch(e){tplSt
 const OPS=['Wait','ForkLoad','ForkUnload','ForkHeight','Script','JackLoad','JackUnload','none'];
 function locCell(s,i,dis){dis=dis||'';let L=s.location,ty=L.type,pn=poolNames(),opts=cur.steps.map((x,j)=>j==i?'':`<option value="${esc(x.id)}" ${L.step==x.id?'selected':''}>${j+1}. ${esc(x.name||x.id)}</option>`).join('');
  return `<select class=loctype onchange="setLoc(${i},'type',this.value)" ${dis}>${['pool','pre','fixed'].map(x=>`<option value=${x} ${ty==x?'selected':''}>${t('loc.'+x)}</option>`).join('')}</select><br>`+
- (ty=='pool'?poolSelect(L.pool,i,dis)+binSelect(binsForPool(L.pool,L.bin),L.bin,i,dis):
-  ty=='pre'?`<select class=locstep onchange="setLoc(${i},'step',this.value)" ${dis}><option value="">-</option>${opts}</select><br>`+selCell(L,i,dis):`<input class=locfixed size=10 value="${esc(L.station||'')}" placeholder="LM1" onchange="setLoc(${i},'station',this.value)" ${dis}>${binSelect(withCurrent(stationBins(L.station),L.bin),L.bin,i,dis)}`)}
-function withCurrent(bins,cur){let a=(bins||[]).slice();if(cur&&!a.includes(cur))a.unshift(cur);return a}
-function binsForPool(poolName,cur){let out=[];for(const e of pools[poolName]||[])for(const b of stationBins(entStation(e)))if(!out.includes(b))out.push(b);return withCurrent(out,cur)}
-function binSelect(bins,bin,i,dis){if(!bins.length)return '';dis=dis||'';
- return ` <select class=locbin title="${esc(t('bin.vsTask'))}" onchange="setLoc(${i},'bin',this.value)" ${dis}><option value="">${esc(t('bin.none'))}</option>${bins.map(b=>`<option value="${esc(b)}" ${b==(bin||'')?'selected':''}>${esc(b)}</option>`).join('')}</select>`}
+ (ty=='pool'?poolSelect(L.pool,i,dis)+targetCell(L,i,dis):
+  ty=='pre'?`<select class=locstep onchange="setLoc(${i},'step',this.value)" ${dis}><option value="">-</option>${opts}</select><br>`+selCell(L,i,dis):`<input class=locfixed size=10 value="${esc(L.station||'')}" placeholder="LM1" onchange="setLoc(${i},'station',this.value)" ${dis}>${targetCell(L,i,dis)}`)}
 const PSEL=['nearest','index','name','dir','random'];
-function selCell(L,i,dis){dis=dis||'';let by=L.select||'nearest',arg=L.selArg==null?'':String(L.selArg);
- let h=`<select class=locsel title="${esc(t('sel.tip'))}" onchange="setLoc(${i},'select',this.value)" ${dis}>${PSEL.map(x=>`<option value=${x} ${by==x?'selected':''}>${t('sel.'+x)}</option>`).join('')}</select>`;
+function selCell(L,i,dis,tip){dis=dis||'';tip=tip||'sel.tip';let by=L.select||'nearest',arg=L.selArg==null?'':String(L.selArg);
+ let h=`<select class=locsel title="${esc(t(tip))}" onchange="setLoc(${i},'select',this.value)" ${dis}>${PSEL.map(x=>`<option value=${x} ${by==x?'selected':''}>${t('sel.'+x)}</option>`).join('')}</select>`;
  if(by=='dir')h+=` <select class=locselarg onchange="setLoc(${i},'selArg',this.value)" ${dis}>${['in','out'].map(x=>`<option value=${x} ${arg==x?'selected':''}>${t('pre.dir.'+x)}</option>`).join('')}</select>`;
  else if(by=='index')h+=` <input class=locselarg type=number min=1 style=width:4em value="${esc(arg||'1')}" onchange="setLoc(${i},'selArg',this.value)" ${dis}>`;
  else if(by=='name')h+=` <input class=locselarg size=8 value="${esc(arg)}" placeholder="LM1*" onchange="setLoc(${i},'selArg',this.value)" ${dis}>`;
  return h}
+function sceneStation(n){if(!n)return null;if(stMap[n])return stMap[n];let s=stations.find(x=>x.name==n);return s&&!s.missing&&Array.isArray(s.bins)?s:null}
+function binMax(L){/* max bins on the stations this step can resolve to; null when the scene does not know them */
+ let names=L.type=='fixed'?[String(L.station||'').trim()]:(pools[L.pool]||[]).map(entStation);
+ names=names.filter(Boolean);if(!names.length)return null;let known=false,max=0;
+ for(const n of names){let s=sceneStation(n);if(!s)continue;known=true;max=Math.max(max,stationBins(n).length)}
+ return known?max:null}
+function targetCell(L,i,dis){dis=dis||'';let tgt=L.target=='bin'?'bin':'station';
+ let h=` <select class=loctgt title="${esc(t('tgt.tip'))}" onchange="setLoc(${i},'target',this.value)" ${dis}><option value=station ${tgt=='station'?'selected':''}>${t('tgt.station')}</option><option value=bin ${tgt=='bin'?'selected':''}>${t('tgt.bin')}</option></select>`;
+ if(tgt!='bin')return h;let n=binMax(L);
+ if(n===0)return h+` <span class="dim tgtnote">${esc(t('tgt.noBin'))}</span>`;
+ if(n===1)return h+` <span class="dim tgtnote">${esc(t('tgt.oneBin'))}</span>`;
+ return h+'<br>'+selCell(L,i,dis,'sel.binTip')}
 // pool dropdown for a 'pool' step: every existing pool (display names) + the step's own value if it is not a pool yet.
 // (was <input list=datalist>: browsers filter datalist suggestions by the current value, so only 'start' was offered)
 function poolSelect(v,i,dis){dis=dis||'';let pn=poolNames();if(v&&!pn.includes(v))pn=pn.concat([v]);
@@ -267,7 +275,7 @@ function renderSteps(){stepPoolSig=poolNames().join('|');let tb=$('steps').tBodi
  if(!$('dl_ops')){let d=document.createElement('datalist');d.id='dl_ops';d.innerHTML=OPS.map(o=>`<option value="${o}">`).join('');document.body.appendChild(d)}}
 function setF(i,k,v){let s=cur.steps[i];if(k=='id'){let old=s.id;if(!v||cur.steps.some((x,j)=>j!=i&&x.id==v)){alert(t('step.dupId'));renderSteps();return}cur.steps.forEach(x=>{if(x.location.type=='pre'&&x.location.step==old)x.location.step=v})}
  if(k=='blockSuffix'&&!v)delete s.blockSuffix;else s[k]=v;renderSteps();tplChanged()}
-function setLoc(i,k,v){let L=cur.steps[i].location;if(k=='type'){cur.steps[i].location=v=='pool'?{type:'pool',pool:poolNames()[0]||'start'}:v=='pre'?{type:'pre',step:(cur.steps.find((x,j)=>j!=i&&x.location.type=='pool')||{}).id||''}:{type:'fixed',station:''}}else if(k=='select'){if(v=='nearest'){delete L.select;delete L.selArg}else{L.select=v;L.selArg=v=='dir'?'in':v=='index'?'1':v=='name'?(L.selArg&&L.select=='name'?L.selArg:''):undefined;if(L.selArg===undefined)delete L.selArg}}else if(k=='bin'){v=(v||'').trim();if(v)L.bin=v;else delete L.bin}else if(k=='station'){L.station=v.trim();if(L.bin&&!withCurrent(stationBins(L.station),'').includes(L.bin))delete L.bin}else if(k=='pool'){L.pool=v.trim();if(L.bin&&!binsForPool(L.pool,'').includes(L.bin))delete L.bin}else L[k]=v.trim();renderSteps();tplChanged()}
+function setLoc(i,k,v){let L=cur.steps[i].location;if(k=='type'){cur.steps[i].location=v=='pool'?{type:'pool',pool:poolNames()[0]||'start'}:v=='pre'?{type:'pre',step:(cur.steps.find((x,j)=>j!=i&&x.location.type=='pool')||{}).id||''}:{type:'fixed',station:''}}else if(k=='target'){delete L.bin;if(v=='bin')L.target='bin';else{delete L.target;delete L.select;delete L.selArg}}else if(k=='select'){if(v=='nearest'){delete L.select;delete L.selArg}else{L.select=v;L.selArg=v=='dir'?'in':v=='index'?'1':v=='name'?(L.selArg&&L.select=='name'?L.selArg:''):undefined;if(L.selArg===undefined)delete L.selArg}}else if(k=='station'){L.station=v.trim();delete L.bin}else if(k=='pool'){L.pool=v.trim();delete L.bin}else L[k]=v.trim();renderSteps();tplChanged()}
 function setArgs(i,ta){let v;try{v=JSON.parse(ta.value||'{}');if(!v||typeof v!='object'||Array.isArray(v))throw new Error(t('step.argsObj'))}catch(e){ta.nextElementSibling.textContent=e.message;return}ta.nextElementSibling.textContent='';cur.steps[i].args=v;tplChanged()}
 function setOpMode(i,v){let s=cur.steps[i];s.opMode=(v==='operation')?'operation':'binTask';if(s.args&&s.args.m4Mode){delete s.args.m4Mode}renderSteps();tplChanged()}
 function setKfs(i,v){let s=cur.steps[i];if(v)s.keepFinalPathSpace=true;else delete s.keepFinalPathSpace;tplChanged()}

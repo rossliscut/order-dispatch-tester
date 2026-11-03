@@ -123,19 +123,36 @@ class BinTargetUiTest(unittest.TestCase):
         self.assertNotIn("#binmenu", html)
         self.assertNotIn("binpick", js)  # pool chips are stations only
         self.assertNotIn("setChipBin", js)
-        self.assertIn("function binSelect(", js)  # template step location Bin dropdown
-        self.assertIn("binsForPool(", js)
-        self.assertIn("class=locbin", js)
+        self.assertNotIn("function binSelect(", js)  # no dropdown of concrete bin names
+        self.assertNotIn("binsForPool(", js)
+        self.assertNotIn("class=locbin", js)
+        self.assertIn("function targetCell(", js)
+        self.assertIn("class=loctgt", js)
+        self.assertIn("function selCell(", js)  # bin target reuses the pre-point selector
+        tc = js[js.index("function targetCell("):js.index("function poolSelect(")]
+        self.assertIn("value=station", tc); self.assertIn("value=bin", tc)
+        self.assertEqual(tc.count("option value="), 2)  # Station / Bin only, no Loc-… options
+        self.assertIn("selCell(L,i,dis,'sel.binTip')", tc)
+        self.assertIn("tgt.noBin", tc); self.assertIn("tgt.oneBin", tc)
+        self.assertIn("n===0", tc.replace(" ", "")); self.assertIn("n===1", tc.replace(" ", ""))
+        self.assertNotIn(".map(", tc)
         i = js.index("function renderSt(")
         body = js[i:js.index("let hlSt", i)]
         self.assertNotIn("pick(", body)  # station table stays read-only
         for l in ("zh", "en"):
             d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
-            for k in ("bin.none", "bin.pick", "bin.vsTask"):
+            for k in ("bin.none", "bin.pick", "bin.vsTask", "tgt.station", "tgt.bin", "tgt.tip", "tgt.noBin", "tgt.oneBin", "sel.binTip"):
                 self.assertTrue(d.get(k), (l, k))
         en = json.load(open(os.path.join(D, "i18n", "en.json"), encoding="utf-8"))
         self.assertEqual(en["bin.none"], "No bin")
         self.assertEqual(en["bin.pick"], "Bin")
+        self.assertEqual(en["tgt.station"], "Station")
+        self.assertEqual(en["tgt.bin"], "Bin")
+        self.assertEqual(en["tgt.station"], en["st.name"])  # same English word as the station column
+        self.assertEqual(en["tgt.bin"], en["bin.pick"])  # same English word as Bin elsewhere
+        src = open(os.path.join(D, "..", "tools", "i18n_src.py"), encoding="utf-8").read()
+        self.assertIn('"tgt.station": ("走点位", "Station")', src)
+        self.assertIn('"tgt.bin": ("走库位", "Bin")', src)
         self.assertNotIn("dropdown", en["pool.chipHint"])
         # map left-click toggles the station; hit-test prefers an LM label over a nearby AP
         i = js.index("function pick(")
@@ -154,7 +171,7 @@ class BinTargetUiTest(unittest.TestCase):
         self.assertNotIn("openBinMenu", up)
 
     def test_scene_load_refreshes_open_template_steps(self):
-        """binSelect reads stMap via stationBins. Scene writes must redraw an open template."""
+        """binMax reads stMap via stationBins. Scene writes must redraw an open template."""
         js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
         ss = js[js.index("function setScene("):js.index("function refreshStepsForScene(")]
         self.assertIn("refreshStepsForScene()", ss)
@@ -162,9 +179,10 @@ class BinTargetUiTest(unittest.TestCase):
         self.assertIn("if(!cur||!$('steps'))return", rf.replace(" ", ""))
         self.assertIn("renderSteps()", rf)
         self.assertIn("#steps", rf)  # don't clobber a step control that has focus
-        # empty bins still draw nothing
-        bs = js[js.index("function binSelect("):js.index("const PSEL=")]
-        self.assertIn("if(!bins.length)return''", bs.replace(" ", ""))
+        # 0 bins: fallback note, not a name list. The count comes from stationBins.
+        bm = js[js.index("function binMax("):js.index("function targetCell(")]
+        self.assertIn("stationBins(", bm)
+        self.assertIn("sceneStation(", bm)
         ls = js[js.index("async function loadScene("):js.index("async function ensureScene(")]
         self.assertIn("if(!r.ok)", ls)
         self.assertIn("setScene(", ls[ls.index("if(!r.ok)"):])
