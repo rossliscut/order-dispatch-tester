@@ -121,9 +121,11 @@ class BinTargetUiTest(unittest.TestCase):
         self.assertNotIn("function openBinMenu(", js)
         self.assertNotIn("oncontextmenu", js)
         self.assertNotIn("#binmenu", html)
-        self.assertIn("function entStation(", js)
-        self.assertIn("select.binpick", js)  # pool chip attaches a bin after the station is in the pool
-        self.assertIn("function binSelect(", js)  # template Fixed station bin dropdown
+        self.assertNotIn("binpick", js)  # pool chips are stations only
+        self.assertNotIn("setChipBin", js)
+        self.assertIn("function binSelect(", js)  # template step location Bin dropdown
+        self.assertIn("binsForPool(", js)
+        self.assertIn("class=locbin", js)
         i = js.index("function renderSt(")
         body = js[i:js.index("let hlSt", i)]
         self.assertNotIn("pick(", body)  # station table stays read-only
@@ -131,17 +133,22 @@ class BinTargetUiTest(unittest.TestCase):
             d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
             for k in ("bin.none", "bin.pick", "bin.vsTask"):
                 self.assertTrue(d.get(k), (l, k))
-            self.assertNotIn("bin.menu", d)
-            self.assertNotIn("bin.mapGesture", d)
         en = json.load(open(os.path.join(D, "i18n", "en.json"), encoding="utf-8"))
         self.assertEqual(en["bin.none"], "No bin")
         self.assertEqual(en["bin.pick"], "Bin")
-        # map left-click toggles the station and does not open a bin menu
+        self.assertNotIn("dropdown", en["pool.chipHint"])
+        # map left-click toggles the station; hit-test prefers an LM label over a nearby AP
         i = js.index("function pick(")
         pick = js[i:js.index("\n// incremental table rows", i)]
         self.assertNotIn("openBinMenu", pick)
-        self.assertNotIn("stationBins(", pick)
         self.assertIn("a.push(n)", pick)
+        hit = js[js.index("const HIT_R="):js.index("function pick(", js.index("const HIT_R="))]
+        self.assertIn("HIT_R=18", hit)
+        self.assertIn("function isLmStation(", hit)
+        self.assertIn("function isApStation(", hit)
+        self.assertIn("nameLabel(", hit)
+        self.assertIn("lms.length?lms:hits", hit.replace(" ", ""))
+        self.assertIn("mapHit(e)", js[js.index("function hoverSt("):js.index("function drawStations(")])
         up = js[js.index("C.onmouseup="):js.index("C.onmouseleave")]
         self.assertIn("pick(best.name)", up)
         self.assertNotIn("openBinMenu", up)

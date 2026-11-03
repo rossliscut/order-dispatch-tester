@@ -100,7 +100,16 @@ function canonPools(src){let o={};for(const k of Object.keys(src||{})){let seen=
 function stationBins(n){let s=stMap[n]||stations.find(x=>x.name==n);let b=s&&s.bins;if(!Array.isArray(b))return [];return [...new Set(b.map(x=>String(x||'').trim()).filter(Boolean))]}
 function selectedBins(n){let out=[];for(const r of poolNames())for(const e of pools[r]||[])if(entStation(e)===n){let b=entBin(e);if(b&&!out.includes(b))out.push(b)}return out}
 function poolMarks(n){let h=[];for(const r of poolNames())for(const e of pools[r]||[])if(entStation(e)===n){let b=entBin(e);h.push(`<span class=chip style="color:${pcol(r)};border-color:${pcol(r)};background:${pcol(r)}14">${esc(plab(r))}${b?' · '+esc(b):''}</span>`)}return h.join(' ')}
-function mapHit(e){let best=null,bd=144;for(const s of (allSt.length?allSt:stations)){if(s.x==null)continue;let d=(tx(s.x)-e.offsetX)**2+(ty(s.y)-e.offsetY)**2;if(d<bd){bd=d;best=s}}return best}
+const HIT_R=18; // px; was 12. Name labels sit to the right of the dot, so a click on the name must count too.
+function isApStation(s){let n=s.name||'',ty=s.type||'';return n.startsWith('AP')||ty.includes('Action')}
+function isLmStation(s){if(isApStation(s))return false;let n=s.name||'',ty=s.type||'';return n.startsWith('LM')||ty.includes('Location')}
+function nameLabel(s,sx,sy){/* union of the name drawn at +4,-4 (plain) and +9,-6 (in a pool) */
+ let w=Math.ceil(((s.name||'').length)*7.2)+12;return {x:sx+4,y:sy-18,w:Math.max(36,w),h:22}}
+function mapHit(e){/* dot within HIT_R, or inside the name label. If an LM/Location and an AP are both in range, the LM wins. A label hit beats a nearer foreign dot. */
+ let px=e.offsetX,py=e.offsetY,list=allSt.length?allSt:stations,hits=[],r2=HIT_R*HIT_R;
+ for(const s of list){if(s.x==null)continue;let sx=tx(s.x),sy=ty(s.y),dot=(sx-px)**2+(sy-py)**2,lab=nameLabel(s,sx,sy);
+  let inLab=px>=lab.x&&px<=lab.x+lab.w&&py>=lab.y&&py<=lab.y+lab.h;if(dot<=r2||inLab)hits.push({s,d:inLab?0:dot,lm:isLmStation(s)})}
+ if(!hits.length)return null;let lms=hits.filter(h=>h.lm),pool=lms.length?lms:hits;pool.sort((a,b)=>a.d-b.d);return pool[0].s}
 function pick(n,role){/* map click toggles the station only. Attach a bin on the template or the pool chip. */
  role=role||pmRole();let a=pools[role]||(pools[role]=[]);
  if(a.some(e=>entStation(e)===n)){for(let i=a.length-1;i>=0;i--)if(entStation(a[i])===n)a.splice(i,1)}
@@ -135,17 +144,15 @@ function renderSt(){let pe=preOvParse().errs;if($('pre_err'))$('pre_err').textCo
   {h:'<b>'+esc(pp)+'</b>'+cl,title:tt},
   poolMarks(s.name)]}}));draw()}
 let hlSt=new Set();
-function chips(a,r){let ov=preOv(),c=pcol(r);return a.map(e=>{let n=entStation(e),b=entBin(e),bins=stationBins(n);let pp=ov[n]||(stMap[n]||stations.find(x=>x.name==n)||{}).pre||'';
- let tt=t('pre.of')+': '+(pp||(allSt.length?t('pre.none'):t('pre.loading')))+(ov[n]?' ('+t('pre.manual')+')':'')+(b?' · '+t('bin.pick')+': '+b:'');
- let sel=bins.length?`<select class=binpick data-k="${esc(entKey(e))}" data-r="${esc(r)}" title="${esc(t('bin.pick'))}"><option value="">${esc(t('bin.none'))}</option>${bins.map(x=>`<option value="${esc(x)}" ${x===b?'selected':''}>${esc(x)}</option>`).join('')}</select>`:(b?` · <b>${esc(b)}</b>`:'');
- return `<span class="chip${hlSt.has(n)?' hl':''}" style="color:${c};border-color:${c};background:${c}14" data-k="${esc(entKey(e))}" data-n="${esc(n)}" data-r="${esc(r)}" title="${esc(tt)}">${esc(n)}${sel}<i title="${t('btn.del')} ${esc(entLabel(e))}">×</i></span>`}).join('')||`<span class=dim>${t('pool.empty')}</span>`}
-function setChipBin(r,key,bin){let a=pools[r]||[],i=a.findIndex(x=>entKey(x)===key);if(i<0)return;let st=entStation(a[i]),next=bin?{station:st,bin}:st;let nk=entKey(next);if(a.some((x,j)=>j!==i&&entKey(x)===nk)){renderPool();return}a[i]=next;renderPool();renderSt();saveNow();prevLater()}
-function chipClick(e){if(e.target.tagName=='SELECT'||e.target.tagName=='OPTION')return;let c=e.target.closest('.chip');if(!c)return;let n=c.dataset.n,r=c.dataset.r,k=c.dataset.k;
+function chips(a,r){let ov=preOv(),c=pcol(r);return a.map(e=>{let n=entStation(e);let pp=ov[n]||(stMap[n]||stations.find(x=>x.name==n)||{}).pre||'';
+ let tt=t('pre.of')+': '+(pp||(allSt.length?t('pre.none'):t('pre.loading')))+(ov[n]?' ('+t('pre.manual')+')':'');
+ return `<span class="chip${hlSt.has(n)?' hl':''}" style="color:${c};border-color:${c};background:${c}14" data-k="${esc(entKey(e))}" data-n="${esc(n)}" data-r="${esc(r)}" title="${esc(tt)}">${esc(n)}<i title="${t('btn.del')} ${esc(n)}">×</i></span>`}).join('')||`<span class=dim>${t('pool.empty')}</span>`}
+function chipClick(e){let c=e.target.closest('.chip');if(!c)return;let n=c.dataset.n,r=c.dataset.r,k=c.dataset.k;
  if(e.target.tagName=='I'){let a=pools[r]||[],i=a.findIndex(x=>entKey(x)===k);if(i>=0)a.splice(i,1);renderPool();renderSt();saveNow();prevLater();return}
  hlSt.has(n)?hlSt.delete(n):hlSt.add(n);renderPool();draw()}
 function renderPools(){let pn=poolNames(),used=(cur&&cur.pools)||[];
  $('pools').innerHTML=pn.map(r=>`<div class=poolrow><span class=pn style="color:${pcol(r)}">${esc(plab(r))}</span> <span class=dim>(${(pools[r]||[]).length})</span>${used.includes(r)?'':` <span class=dim>${t('pool.unused')}</span>`}: <span class=chips data-r="${esc(r)}">${chips(pools[r]||[],r)}</span> <button onclick="clearPool('${r}')">${t('btn.clear')}</button>${r=='start'||r=='end'?'':` <button onclick="renamePool('${r}')">${t('pool.rename')}</button> <button onclick="delPool('${r}')">${t('pool.del')}</button>`}</div>`).join('');
- document.querySelectorAll('#pools .chips').forEach(e=>{e.onclick=chipClick;e.onchange=ev=>{let s=ev.target.closest('select.binpick');if(!s)return;setChipBin(s.dataset.r,s.dataset.k,s.value)}});
+ document.querySelectorAll('#pools .chips').forEach(e=>{e.onclick=chipClick});
  for(const s of ['swa','swb']){let e=$(s),v=e.value;e.innerHTML=pn.map(r=>`<option value="${esc(r)}">${esc(plab(r))}</option>`).join('');e.value=pn.includes(v)?v:(s=='swa'?pn[0]:pn[1]||pn[0])}
  let pm=pmRole();
  $('pm_box').innerHTML=`<select id=pm onchange=saveLater()>`+pn.map(r=>`<option value="${esc(r)}" ${r==pm?'selected':''}>${esc(plab(r))}</option>`).join('')+`</select>`;
@@ -218,10 +225,12 @@ function rawChanged(){let v;try{v=JSON.parse($('tpl_json').value)}catch(e){tplSt
 const OPS=['Wait','ForkLoad','ForkUnload','ForkHeight','Script','JackLoad','JackUnload','none'];
 function locCell(s,i,dis){dis=dis||'';let L=s.location,ty=L.type,pn=poolNames(),opts=cur.steps.map((x,j)=>j==i?'':`<option value="${esc(x.id)}" ${L.step==x.id?'selected':''}>${j+1}. ${esc(x.name||x.id)}</option>`).join('');
  return `<select class=loctype onchange="setLoc(${i},'type',this.value)" ${dis}>${['pool','pre','fixed'].map(x=>`<option value=${x} ${ty==x?'selected':''}>${t('loc.'+x)}</option>`).join('')}</select><br>`+
- (ty=='pool'?poolSelect(L.pool,i,dis):
-  ty=='pre'?`<select class=locstep onchange="setLoc(${i},'step',this.value)" ${dis}><option value="">-</option>${opts}</select><br>`+selCell(L,i,dis):`<input class=locfixed size=10 value="${esc(L.station||'')}" placeholder="LM1" onchange="setLoc(${i},'station',this.value)" ${dis}>${binSelect(L.station,L.bin,i,dis)}`)}
-function binSelect(station,bin,i,dis){let bins=stationBins(station);if(!bins.length)return '';dis=dis||'';
- return `<select class=locbin title="${esc(t('bin.pick'))}" onchange="setLoc(${i},'bin',this.value)" ${dis}><option value="">${esc(t('bin.none'))}</option>${bins.map(b=>`<option value="${esc(b)}" ${b==(bin||'')?'selected':''}>${esc(b)}</option>`).join('')}</select>`}
+ (ty=='pool'?poolSelect(L.pool,i,dis)+binSelect(binsForPool(L.pool,L.bin),L.bin,i,dis):
+  ty=='pre'?`<select class=locstep onchange="setLoc(${i},'step',this.value)" ${dis}><option value="">-</option>${opts}</select><br>`+selCell(L,i,dis):`<input class=locfixed size=10 value="${esc(L.station||'')}" placeholder="LM1" onchange="setLoc(${i},'station',this.value)" ${dis}>${binSelect(withCurrent(stationBins(L.station),L.bin),L.bin,i,dis)}`)}
+function withCurrent(bins,cur){let a=(bins||[]).slice();if(cur&&!a.includes(cur))a.unshift(cur);return a}
+function binsForPool(poolName,cur){let out=[];for(const e of pools[poolName]||[])for(const b of stationBins(entStation(e)))if(!out.includes(b))out.push(b);return withCurrent(out,cur)}
+function binSelect(bins,bin,i,dis){if(!bins.length)return '';dis=dis||'';
+ return ` <select class=locbin title="${esc(t('bin.vsTask'))}" onchange="setLoc(${i},'bin',this.value)" ${dis}><option value="">${esc(t('bin.none'))}</option>${bins.map(b=>`<option value="${esc(b)}" ${b==(bin||'')?'selected':''}>${esc(b)}</option>`).join('')}</select>`}
 const PSEL=['nearest','index','name','dir','random'];
 function selCell(L,i,dis){dis=dis||'';let by=L.select||'nearest',arg=L.selArg==null?'':String(L.selArg);
  let h=`<select class=locsel title="${esc(t('sel.tip'))}" onchange="setLoc(${i},'select',this.value)" ${dis}>${PSEL.map(x=>`<option value=${x} ${by==x?'selected':''}>${t('sel.'+x)}</option>`).join('')}</select>`;
@@ -256,7 +265,7 @@ function renderSteps(){stepPoolSig=poolNames().join('|');let tb=$('steps').tBodi
  if(!$('dl_ops')){let d=document.createElement('datalist');d.id='dl_ops';d.innerHTML=OPS.map(o=>`<option value="${o}">`).join('');document.body.appendChild(d)}}
 function setF(i,k,v){let s=cur.steps[i];if(k=='id'){let old=s.id;if(!v||cur.steps.some((x,j)=>j!=i&&x.id==v)){alert(t('step.dupId'));renderSteps();return}cur.steps.forEach(x=>{if(x.location.type=='pre'&&x.location.step==old)x.location.step=v})}
  if(k=='blockSuffix'&&!v)delete s.blockSuffix;else s[k]=v;renderSteps();tplChanged()}
-function setLoc(i,k,v){let L=cur.steps[i].location;if(k=='type'){cur.steps[i].location=v=='pool'?{type:'pool',pool:poolNames()[0]||'start'}:v=='pre'?{type:'pre',step:(cur.steps.find((x,j)=>j!=i&&x.location.type=='pool')||{}).id||''}:{type:'fixed',station:''}}else if(k=='select'){if(v=='nearest'){delete L.select;delete L.selArg}else{L.select=v;L.selArg=v=='dir'?'in':v=='index'?'1':v=='name'?(L.selArg&&L.select=='name'?L.selArg:''):undefined;if(L.selArg===undefined)delete L.selArg}}else if(k=='bin'){v=(v||'').trim();if(v)L.bin=v;else delete L.bin}else if(k=='station'){L.station=v.trim();if(L.bin&&!stationBins(L.station).includes(L.bin))delete L.bin}else L[k]=v.trim();renderSteps();tplChanged()}
+function setLoc(i,k,v){let L=cur.steps[i].location;if(k=='type'){cur.steps[i].location=v=='pool'?{type:'pool',pool:poolNames()[0]||'start'}:v=='pre'?{type:'pre',step:(cur.steps.find((x,j)=>j!=i&&x.location.type=='pool')||{}).id||''}:{type:'fixed',station:''}}else if(k=='select'){if(v=='nearest'){delete L.select;delete L.selArg}else{L.select=v;L.selArg=v=='dir'?'in':v=='index'?'1':v=='name'?(L.selArg&&L.select=='name'?L.selArg:''):undefined;if(L.selArg===undefined)delete L.selArg}}else if(k=='bin'){v=(v||'').trim();if(v)L.bin=v;else delete L.bin}else if(k=='station'){L.station=v.trim();if(L.bin&&!withCurrent(stationBins(L.station),'').includes(L.bin))delete L.bin}else if(k=='pool'){L.pool=v.trim();if(L.bin&&!binsForPool(L.pool,'').includes(L.bin))delete L.bin}else L[k]=v.trim();renderSteps();tplChanged()}
 function setArgs(i,ta){let v;try{v=JSON.parse(ta.value||'{}');if(!v||typeof v!='object'||Array.isArray(v))throw new Error(t('step.argsObj'))}catch(e){ta.nextElementSibling.textContent=e.message;return}ta.nextElementSibling.textContent='';cur.steps[i].args=v;tplChanged()}
 function setOpMode(i,v){let s=cur.steps[i];s.opMode=(v==='operation')?'operation':'binTask';if(s.args&&s.args.m4Mode){delete s.args.m4Mode}renderSteps();tplChanged()}
 function setKfs(i,v){let s=cur.steps[i];if(v)s.keepFinalPathSpace=true;else delete s.keepFinalPathSpace;tplChanged()}
@@ -316,7 +325,7 @@ function drawHeadings(){/* station heading arrows (scene 'dir', radians); statio
  for(const s of (allSt.length?allSt:stations)){if(s.x==null||typeof s.dir!='number')continue;let x=tx(s.x),y=ty(s.y),c=Math.cos(s.dir),n=Math.sin(s.dir),ex=x+L*c,ey=y-L*n;
   let col=s.ignoreDir?'#b9a6cf':'#7a3db8';X.strokeStyle=col;X.fillStyle=col;X.beginPath();X.moveTo(x,y);X.lineTo(ex,ey);X.stroke();X.beginPath();X.moveTo(ex,ey);X.lineTo(ex-5*c+3*n,ey+5*n+3*c);X.lineTo(ex-5*c-3*n,ey+5*n-3*c);X.closePath();X.fill()}
  X.restore()}
-function hoverSt(e){if(!$('ly_st').checked){C.title='';return}let best=null,bd=144;for(const s of (allSt.length?allSt:stations)){if(s.x==null)continue;let d=(tx(s.x)-e.offsetX)**2+(ty(s.y)-e.offsetY)**2;if(d<bd){bd=d;best=s}}
+function hoverSt(e){if(!$('ly_st').checked){C.title='';return}let best=mapHit(e);
  let bins=best?stationBins(best.name):[];let tt=best?best.name+' ('+best.type+')'+(bins.length?' · '+t('bin.pick')+': '+bins.join(', '):'')+(typeof best.dir=='number'?' · '+t('map.angle')+' '+(best.dirDeg!=null?best.dirDeg:(best.dir*180/Math.PI).toFixed(1))+'°'+(best.ignoreDir?' ('+t('map.ignoreDir')+')':''):''):'';if(C.title!==tt)C.title=tt}
 function drawStations(){let pn=poolNames(),inP={},pre={};
  let alt={};for(const r of pn)for(const e of pools[r]||[]){let n=entStation(e);if(!n)continue;if(!(inP[n]||[]).includes(r))(inP[n]=inP[n]||[]).push(r);preAll(n).forEach((p,i)=>{pre[p]=pre[p]||{};let arr=pre[p][r]=pre[p][r]||[];if(!arr.includes(n))arr.push(n);if(i)alt[p+'|'+n]=1})}

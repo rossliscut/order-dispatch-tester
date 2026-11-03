@@ -131,6 +131,24 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(blocks["rds-bin-e"]["operation_args"], {"st": "AP2", "pre": "LM2", "loc": "AP2", "of": "LM1"})
         self.assertNotIn("Loc-", json.dumps(C.S["orders"]["rds-bin"]["body"]))
 
+    def test_pool_step_bin_sets_m4_location(self):
+        t = bin_tpl()
+        t["steps"][0]["location"]["bin"] = "  Loc-7-1  "
+        self.assertEqual(T.validate(t), [])
+        self.assertEqual(t["steps"][0]["location"].get("bin"), "Loc-7-1")
+        pre = lambda n: PREPOINTS.get(n, "")
+        m4 = T.build_order(t, {"start": "AP1", "end": "AP2"}, {}, pre, "stepbin", bin_targets=True)
+        by = {s["id"]: s for s in m4["steps"]}
+        self.assertEqual(by["s"]["location"], "Loc-7-1")
+        self.assertEqual(by["s"]["args"]["loc"], "Loc-7-1")  # {start} follows the step bin
+        self.assertEqual(by["w"]["location"], "LM2")  # pre still uses the end station
+        self.assertEqual(by["e"]["location"], "AP2")
+        rds = T.build_order(t, {"start": "AP1", "end": "AP2"}, {}, pre, "rdsbin", bin_targets=False)
+        self.assertEqual([s for s in rds["steps"] if s["id"] == "s"][0]["location"], "AP1")
+        t["steps"][0]["location"]["bin"] = "   "
+        T.validate(t)
+        self.assertNotIn("bin", t["steps"][0]["location"])
+
     def test_string_only_pool_still_matches_station_location(self):
         b = {"templateName": "binloc", "pools": {"start": ["AP4", "AP5"], "end": ["AP6"]},
              "strategy": "round_robin", "count": 1, "noSelf": True}

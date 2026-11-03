@@ -141,6 +141,7 @@ def validate(t):
             stn = str(loc.get("station") or "").strip()
             if not stn: errs.append(where + ": location.station missing")
             else: loc["station"] = stn
+        if loc["type"] in ("pool", "fixed"):
             bn = entry_bin(loc)
             if bn: loc["bin"] = bn
             else: loc.pop("bin", None)
@@ -251,12 +252,14 @@ def pick_pre(cands, by, arg, rng=None):
 VAR_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)(?::([^{}:]+))?\}")
 
 class Ctx:
-    def __init__(self, oid, picks, steps, locs, pre_of, roles, choose=None, bases=None, bin_targets=False):
+    def __init__(self, oid, picks, steps, locs, pre_of, roles, choose=None, bases=None, bin_targets=False, step_bins=None):
         self.oid, self.picks, self.steps, self.locs, self.pre_of, self.roles = oid, picks, steps, locs, pre_of, roles
-        self.choose = choose; self.bases = bases or {}; self.bin_targets = bin_targets; self.step = None
+        self.choose = choose; self.bases = bases or {}; self.bin_targets = bin_targets
+        self.step_bins = step_bins or {}; self.step = None
     def _pick_station(self, name):
         return entry_station(self.picks.get(name, ""))
     def _pick_loc(self, name):
+        if self.bin_targets and self.step_bins.get(name): return self.step_bins[name]
         ent = self.picks.get(name, "")
         return entry_location(ent) if self.bin_targets else entry_station(ent)
     def _pre(self, station, arg, what):
@@ -302,6 +305,17 @@ def substitute(v, ctx):
         return VAR_RE.sub(lambda m: str(ctx.var(m.group(1), m.group(2))), v)
     return v
 
+def _pool_step_bins(steps):
+    """First enabled pool step's bin per pool name. Used so {pool} matches that step's M4 location."""
+    out = {}
+    for s in steps or []:
+        if not isinstance(s, dict) or not s.get("enabled", True): continue
+        loc = s.get("location") or {}
+        if loc.get("type") == "pool" and loc.get("pool") and loc["pool"] not in out:
+            bn = entry_bin(loc)
+            if bn: out[loc["pool"]] = bn
+    return out
+
 # ---------------------------------------------------------------- build a neutral order
 def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenient=False, bin_targets=False):
     """picks: {pool name: station string or {station, bin?}}. Returns a neutral order dict.
@@ -331,8 +345,10 @@ def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenien
         elif loc["type"] == "fixed": ent = loc
         else: continue
         stn = entry_station(ent)
+        # step.location.bin wins; a bin stored on the pool entry is the legacy fallback
+        bn = entry_bin(loc) or entry_bin(ent)
         bases[s["id"]] = stn
-        locs[s["id"]] = entry_location(ent) if bin_targets else stn
+        locs[s["id"]] = (bn or stn) if bin_targets else stn
     def resolve(s, depth=0):
         if s["id"] in locs and s["location"]["type"] != "pre": return locs[s["id"]]
         if s["id"] in locs and s["location"]["type"] == "pre" and s["id"] in bases: return locs[s["id"]]
@@ -356,7 +372,7 @@ def build_order(t, picks, cfg, pre_of, oid=None, cands_of=None, rng=None, lenien
     for s in steps:
         if not s.get("enabled", True): continue
         resolve(s)
-    ctx = Ctx(oid, picks, steps, locs, pre_of, roles, choose, bases, bin_targets)
+    ctx = Ctx(oid, picks, steps, locs, pre_of, roles, choose, bases, bin_targets, _pool_step_bins(steps))
     for s in steps:
         if not s.get("enabled", True): continue
         ctx.step = s
