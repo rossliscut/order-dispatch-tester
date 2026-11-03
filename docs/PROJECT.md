@@ -104,12 +104,12 @@ M4 下发时把解析出的库位名放进步骤 `location`（导航目标就是
 - 适配器：RDS、M4。注册名就是 `rds`、`m4`。
 - 本环境执行 `python3 -m unittest discover -s tests`：121 项通过（约 57 秒）。
 - 没有 CI 配置。
-- 根目录 `README.md` / `README.zh-CN.md` 仍写「目前只有 RDS 适配器」，和代码不符。使用说明 `docs/USAGE.*.md` 已包含 M4 和库位。本次只加智能体说明，没有改 README。
-- `docs/USAGE.*.md` 的逐块下发一节里，个别句子仍写「连续失败 5 次则停止」「查无此单就停止」。`core.py` 的现行行为是暂停并继续轮询。本次没有功能变更，所以没有改 USAGE。
+- 根目录 `README.md` / `README.zh-CN.md` 仍写「目前只有 RDS 适配器」，和代码不符。使用说明 `docs/USAGE.*.md` 已包含 M4 和库位。是否另改 README：待补。
+- `docs/USAGE.zh.md` 与 `docs/USAGE.en.md` 的逐块下发已与 `core.py` 对齐：连续失败满 5 次、查无此单都只暂停并继续轮询；只有运单 `FINISHED` / `STOPPED`（含在工具里取消）才终止追加。说明与代码再有出入时，以 `core.py` 为准。
 
 ## 待办
 
 - 产品上下一版要做什么：待补。README 里提到以后可以加 VDA 5050 一类适配器；代码里没有，是否仍要做：待补。
-- 是否在单独的文档改动里修正 README 的适配器范围，以及把 USAGE 的逐块停止条件改成与 `core.py` 一致：待补。按仓库规矩，那次要中英两份 USAGE 一起改。
+- 是否在单独的文档改动里修正 README 的适配器范围：待补。
 - 版本号何时从 `2.1.0` 递增：待补。
 - 维护者从 box 同步到 Windows 笔记本的具体拷贝命令：待补。部署约定本身见 [AGENTS.md](../AGENTS.md)（测完再同步、重启 5088、备份到笔记本上 `D:\backups\odt\<时间戳>`，不写服务器 IP）。

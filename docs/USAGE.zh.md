@@ -197,7 +197,7 @@
   1. `POST /setOrder`：只带第一个块，`complete: false`。
   2. 工具按「逐块轮询(秒)」间隔 `GET /orderDetails/<id>`，当最后一个已下发块的 `state` 为 `FINISHED` 时 `POST /addBlocks`，body `{"id": <运单ID>, "blocks": [下一块], "complete": false}`。
   3. 最后一块追加成功后立即 `POST /markComplete`，body `{"id": <运单ID>}`（封口）。
-  - 成功判定：HTTP 200 且返回 `{"code": 0}`；addBlocks/markComplete 连续失败 5 次则停止。
+  - 成功判定：HTTP 200 且返回 `{"code": 0}`。`addBlocks` / `markComplete` 连续失败满 5 次只开始显示告警，标签为「运单/块异常, 已暂停等待恢复(继续轮询)」，状态仍是追加中，继续轮询并重试，不停止追加。只有运单终态 FINISHED/STOPPED（含在工具里取消）才终止追加。
 - 停止条件：**只要运单未到终态就不会停止追加**。只有运单 `state` 为 `FINISHED` / `STOPPED`（在工具里取消 = RDS 终止 → STOPPED；以及 CANCELED/WITHDRAWN/TERMINATED/SKIPPED）才停止，原因写入日志（`inc_stopped`）。运单或块 `FAILED` / `Error`、`SUSPENDED`、`WAITING`、未知状态、orderDetails 请求失败/超时/查无此单、addBlocks 连续失败，都只记告警（`inc_warn`）暂停并继续轮询，恢复后继续追加（实测 RDS 会短暂报运单 FAILED 随后恢复 RUNNING）。
 - 旧版本因 `order FAILED` / `order Error` / 查无此单 / addBlocks 多次失败而标记「已停止」的逐块运单（保存在 sent_orders.json），在启动或下一次轮询时自动恢复为追加中（日志 `inc_revived`），按 orderDetails 已有块续传，不重复追加。
 - 测试订单页「状态」列后有 `逐块 k/N` 标签：蓝=追加中，绿 ✓=已全部追加并封口，橙=运单/块异常已暂停等待恢复（仍在轮询），红=运单终态（FINISHED/STOPPED）已停止（附原因，悬停看详情）。顶部状态行显示「逐块下发进行中 n 单」。
@@ -209,7 +209,7 @@
   - 成功判定：HTTP 200 且 `code` 为 0 **或缺省**；错误码 40000/50000/50001/50002/50003（对已封口运单 addBlocks 返回 50003 "order is complete"）。
   - 运单状态：CREATED / WAITING / RUNNING / SUSPENDED / FINISHED / FAILED / STOPPED / Error / TOBEDISPATCHED；动作块状态另有 POSTING、MANUAL_FINISHED。
   - 逐块追加：前一块 `FINISHED` 或 `MANUAL_FINISHED`（手动完成）才追加下一块；**块**为 `FAILED` / `STOPPED` / `Error` 时只记录告警（标签变橙「块异常, 等待恢复」）并继续轮询，块恢复并 `FINISHED`/`MANUAL_FINISHED` 后继续追加；**运单** `FAILED` / `Error` 同样只暂停（标签橙「运单 FAILED, 暂停」）；只有运单 `state` 为终态 `FINISHED` / `STOPPED`（或取消）时才停止追加。SUSPENDED、WAITING、POSTING 及未知状态只等待，不停止。
-  - 注意：RDS 默认允许 addBlocks 对不存在的运单 ID **自动创建运单**（参数 CreateNewOrderWhileAddBlocks），所以工具每次追加前都先用 orderDetails 确认运单仍存在；查无此单就停止，不再追加。
+  - 注意：RDS 默认允许 addBlocks 对不存在的运单 ID **自动创建运单**（参数 CreateNewOrderWhileAddBlocks），所以工具每次追加前都先用 orderDetails 确认运单仍存在。查无此单只记告警并暂停、继续轮询，标签为「运单/块异常, 已暂停等待恢复(继续轮询)」，不停止追加。只有运单终态 FINISHED/STOPPED（含在工具里取消）才终止追加。
 
 ## M4 调度系统
 

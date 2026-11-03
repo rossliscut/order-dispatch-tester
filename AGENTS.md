@@ -79,7 +79,7 @@ python3 -m unittest discover -s tests
 
 轮询用的终态是另一套，同样不要把 `FAILED` 算进去：`RdsAdapter.terminal_states` 含 `FINISHED`、`STOPPED`、`MANUAL_FINISHED`、`CANCELED` / `CANCELLED`、`WITHDRAWN`、`TERMINATED`、`SKIPPED`，不含 `FAILED`。`M4Adapter.terminal_states` 只有 `FINISHED` 和 `STOPPED`（M4 的 Done / Cancelled）；`fault: true` 映射成 `FAILED`，只暂停。
 
-`docs/USAGE.zh.md` 与 `docs/USAGE.en.md` 的「逐块下发」里，有句子和上述代码不一致（连续失败 5 次就停止、查无此单就停止）。改这块行为或改这两段时，以本节和 `core.py` 为准，两份 USAGE 一起改齐。
+`docs/USAGE.zh.md` 与 `docs/USAGE.en.md` 的「逐块下发」已与上述行为对齐：连续失败满 5 次、查无此单都只暂停并继续轮询，只有运单 `FINISHED` / `STOPPED`（含在工具里取消）才终止追加。以后说明与代码再有出入，以 `core.py` 为准，并同时改齐两份 USAGE。
 
 ### 库位
 
