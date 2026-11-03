@@ -59,7 +59,9 @@ async function saveCfg(){let st=collect();try{localStorage.setItem(lsKey(),JSON.
  // refresh list labels (base may have changed)
  await refreshServers();return r}
 async function loadSt(){saveCfg();let ok=await loadScene(true,false);if(!ok)return;stations=allSt.slice();$('info').textContent=sceneAt();fitAll();renderSt();renderPool();prevLater()}
-function setScene(list){allSt=list||[];stMap={};for(const s of allSt)stMap[s.name]=s}
+function setScene(list){allSt=list||[];stMap={};for(const s of allSt)stMap[s.name]=s;refreshStepsForScene()}
+// stationBins reads stMap. Steps are often drawn before the cached/loaded scene arrives; pool-name refreshStepPools does not see bins.
+function refreshStepsForScene(){if(!cur||!$('steps'))return;let a=document.activeElement;if(a&&a.closest&&a.closest('#steps')){setTimeout(refreshStepsForScene,500);return}renderSteps()}
 let busyN=0;function busy(on){busyN=Math.max(0,busyN+(on?1:-1));const o=$('busy');if(!o)return;if(busyN){$('busytxt').textContent=t('busy.scene');o.classList.add('on');if(document.activeElement)document.activeElement.blur()}else{o.classList.remove('on','prog');$('busystage').textContent='';$('busyfill').style.width='0'}}
 document.addEventListener('keydown',e=>{if(busyN){e.preventDefault();e.stopPropagation()}},true);
 const STW={request:[0,5],download:[5,50],parse:[50,57],pointcloud:[57,60],mapdl:[60,85],mapparse:[85,92],downsample:[92,96],mapcache:[92,96],cache:[96,100]};

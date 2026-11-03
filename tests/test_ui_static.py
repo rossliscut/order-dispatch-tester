@@ -153,6 +153,31 @@ class BinTargetUiTest(unittest.TestCase):
         self.assertIn("pick(best.name)", up)
         self.assertNotIn("openBinMenu", up)
 
+    def test_scene_load_refreshes_open_template_steps(self):
+        """binSelect reads stMap via stationBins. Scene writes must redraw an open template."""
+        js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
+        ss = js[js.index("function setScene("):js.index("function refreshStepsForScene(")]
+        self.assertIn("refreshStepsForScene()", ss)
+        rf = js[js.index("function refreshStepsForScene("):js.index("let busyN")]
+        self.assertIn("if(!cur||!$('steps'))return", rf.replace(" ", ""))
+        self.assertIn("renderSteps()", rf)
+        self.assertIn("#steps", rf)  # don't clobber a step control that has focus
+        # empty bins still draw nothing
+        bs = js[js.index("function binSelect("):js.index("const PSEL=")]
+        self.assertIn("if(!bins.length)return''", bs.replace(" ", ""))
+        ls = js[js.index("async function loadScene("):js.index("async function ensureScene(")]
+        self.assertIn("if(!r.ok)", ls)
+        self.assertIn("setScene(", ls[ls.index("if(!r.ok)"):])
+        ini = js[js.index("async function initSettings("):js.index("async function saveCfg(")]
+        cache = ini[ini.index("/api/scene_geom?cached=1"):ini.index("catch(e){}", ini.index("/api/scene_geom?cached=1"))]
+        self.assertIn("setScene(", cache)
+        sel = js[js.index("async function selectServer("):js.index("async function addServer(")]
+        sc = sel[sel.index("/api/scene_geom?cached=1"):sel.index("catch(e){}", sel.index("/api/scene_geom?cached=1"))]
+        self.assertIn("setScene(", sc)
+        dele = js[js.index("async function delServer("):js.index("async function m4Load(")]
+        dc = dele[dele.index("/api/scene_geom?cached=1"):dele.index("catch(e){}", dele.index("/api/scene_geom?cached=1"))]
+        self.assertIn("setScene(", dc)
+
 class MapToolbarTest(unittest.TestCase):
     def test_no_manual_smap_upload_or_path(self):
         html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
