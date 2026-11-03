@@ -118,23 +118,33 @@ class BinTargetUiTest(unittest.TestCase):
     def test_bin_picker_and_i18n(self):
         js = open(os.path.join(D, "static", "app.js"), encoding="utf-8").read()
         html = open(os.path.join(D, "static", "index.html"), encoding="utf-8").read()
-        self.assertIn("function openBinMenu(", js)
+        self.assertNotIn("function openBinMenu(", js)
+        self.assertNotIn("oncontextmenu", js)
+        self.assertNotIn("#binmenu", html)
         self.assertIn("function entStation(", js)
-        self.assertIn("select.binpick", js)
-        self.assertIn("function binSelect(", js)
-        self.assertIn("#binmenu", html)
+        self.assertIn("select.binpick", js)  # pool chip attaches a bin after the station is in the pool
+        self.assertIn("function binSelect(", js)  # template Fixed station bin dropdown
         i = js.index("function renderSt(")
         body = js[i:js.index("let hlSt", i)]
-        self.assertNotIn("pick(", body)  # station table stays read-only; bins are chosen on the map / chip
+        self.assertNotIn("pick(", body)  # station table stays read-only
         for l in ("zh", "en"):
             d = json.load(open(os.path.join(D, "i18n", l + ".json"), encoding="utf-8"))
-            for k in ("bin.menu", "bin.none", "bin.pick", "bin.stationOnly", "bin.vsTask"):
+            for k in ("bin.none", "bin.pick", "bin.vsTask"):
                 self.assertTrue(d.get(k), (l, k))
+            self.assertNotIn("bin.menu", d)
+            self.assertNotIn("bin.mapGesture", d)
         en = json.load(open(os.path.join(D, "i18n", "en.json"), encoding="utf-8"))
         self.assertEqual(en["bin.none"], "No bin")
-        self.assertEqual(en["bin.stationOnly"], "Station only")
         self.assertEqual(en["bin.pick"], "Bin")
-        self.assertTrue(en["bin.menu"].startswith("Choose a bin"))
+        # map left-click toggles the station and does not open a bin menu
+        i = js.index("function pick(")
+        pick = js[i:js.index("\n// incremental table rows", i)]
+        self.assertNotIn("openBinMenu", pick)
+        self.assertNotIn("stationBins(", pick)
+        self.assertIn("a.push(n)", pick)
+        up = js[js.index("C.onmouseup="):js.index("C.onmouseleave")]
+        self.assertIn("pick(best.name)", up)
+        self.assertNotIn("openBinMenu", up)
 
 class MapToolbarTest(unittest.TestCase):
     def test_no_manual_smap_upload_or_path(self):

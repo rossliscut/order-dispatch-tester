@@ -100,15 +100,12 @@ function canonPools(src){let o={};for(const k of Object.keys(src||{})){let seen=
 function stationBins(n){let s=stMap[n]||stations.find(x=>x.name==n);let b=s&&s.bins;if(!Array.isArray(b))return [];return [...new Set(b.map(x=>String(x||'').trim()).filter(Boolean))]}
 function selectedBins(n){let out=[];for(const r of poolNames())for(const e of pools[r]||[])if(entStation(e)===n){let b=entBin(e);if(b&&!out.includes(b))out.push(b)}return out}
 function poolMarks(n){let h=[];for(const r of poolNames())for(const e of pools[r]||[])if(entStation(e)===n){let b=entBin(e);h.push(`<span class=chip style="color:${pcol(r)};border-color:${pcol(r)};background:${pcol(r)}14">${esc(plab(r))}${b?' · '+esc(b):''}</span>`)}return h.join(' ')}
-function toggleEntry(entry,role){role=role||pmRole();let c=entCanon(entry);if(!c)return;let a=pools[role]||(pools[role]=[]);let k=entKey(c),i=a.findIndex(x=>entKey(x)===k);if(i>=0)a.splice(i,1);else a.push(c);closeBinMenu();renderPool();renderSt();prevLater()}
-function pick(n,role,ev){role=role||pmRole();let bins=stationBins(n);if(!bins.length){toggleEntry(n,role);return}openBinMenu(n,bins,role,ev)}
-function closeBinMenu(){let m=$('binmenu');if(m)m.remove()}
-function openBinMenu(n,bins,role,ev){closeBinMenu();let a=pools[role]||[];let rows=[{bin:'',label:t('bin.stationOnly')}].concat(bins.map(b=>({bin:b,label:b})));
- let box=document.createElement('div');box.id='binmenu';box.innerHTML=`<div class=bmhd>${esc(t('bin.menu',{st:n,p:plab(role)}))}</div>`+rows.map(r=>{let entry=r.bin?{station:n,bin:r.bin}:n;let on=a.some(x=>entKey(x)===entKey(entry));return `<button type=button class="${on?'on':''}">${on?'✓ ':''}${esc(r.label)}</button>`}).join('');
- document.body.appendChild(box);box.title=t('bin.vsTask');let x=(ev&&ev.clientX)||40,y=(ev&&ev.clientY)||40;box.style.left=Math.max(8,Math.min(x,window.innerWidth-box.offsetWidth-8))+'px';box.style.top=Math.max(8,Math.min(y,window.innerHeight-box.offsetHeight-8))+'px';
- box.onclick=e=>{let b=e.target.closest('button');if(!b)return;let i=[...box.querySelectorAll('button')].indexOf(b);let r=rows[i];toggleEntry(r.bin?{station:n,bin:r.bin}:n,role)}}
-document.addEventListener('mousedown',e=>{let m=$('binmenu');if(!m||m.contains(e.target))return;closeBinMenu()});
-document.addEventListener('keydown',e=>{if(e.key=='Escape')closeBinMenu()});
+function mapHit(e){let best=null,bd=144;for(const s of (allSt.length?allSt:stations)){if(s.x==null)continue;let d=(tx(s.x)-e.offsetX)**2+(ty(s.y)-e.offsetY)**2;if(d<bd){bd=d;best=s}}return best}
+function pick(n,role){/* map click toggles the station only. Attach a bin on the template or the pool chip. */
+ role=role||pmRole();let a=pools[role]||(pools[role]=[]);
+ if(a.some(e=>entStation(e)===n)){for(let i=a.length-1;i>=0;i--)if(entStation(a[i])===n)a.splice(i,1)}
+ else a.push(n);
+ renderPool();renderSt();prevLater()}
 // incremental table rows (keeps scroll / selection / open JSON boxes)
 function syncRows(tb,items){let ex=new Map();for(const tr of [...tb.rows])if(tr.dataset.k)ex.set(tr.dataset.k,tr);
  let want=new Set(items.map(i=>i.k));for(const[k,tr]of ex)if(!want.has(k))tr.remove();let prev=null;
@@ -340,7 +337,7 @@ function drawLegend(pn){let items=pn.map(r=>['dot',pcol(r),null,null,`${plab(r)}
  X.font='12px sans-serif';items.forEach((it,i)=>{let y=y0+13+i*17,cx=x0+12;if(it[0]=='pre'){X.save();X.setLineDash([4,3]);X.strokeStyle=it[3];X.beginPath();X.moveTo(cx+5,y);X.lineTo(cx+16,y);X.stroke();X.restore();dot(cx,y,4.5,it[1],null,it[3])}
   else if(it[1]=='#06c'||it[1]=='#999'){X.fillStyle=it[1];X.beginPath();X.arc(cx,y,3,0,7);X.fill()}else dot(cx,y,6,it[1],it[2],it[3]);X.fillStyle='#222';X.fillText(it[4],x0+30,y+4)});X.restore()}
 let drag=null;C.onmousedown=e=>drag={x:e.offsetX,y:e.offsetY,m:0};C.onmousemove=e=>{if(!drag){hoverSt(e);return}let dx=e.offsetX-drag.x,dy=e.offsetY-drag.y;if(Math.abs(dx)+Math.abs(dy)>2)drag.m=1;view.ox+=dx;view.oy+=dy;drag.x=e.offsetX;drag.y=e.offsetY;draw()};
-C.onmouseup=e=>{if(drag&&!drag.m&&$('ly_st').checked){let best=null,bd=144;for(const s of (allSt.length?allSt:stations)){if(s.x==null)continue;let d=(tx(s.x)-e.offsetX)**2+(ty(s.y)-e.offsetY)**2;if(d<bd){bd=d;best=s}}if(best)pick(best.name,null,e)}drag=null};
+C.onmouseup=e=>{if(drag&&!drag.m&&$('ly_st').checked){let best=mapHit(e);if(best)pick(best.name)}drag=null};
 C.onmouseleave=()=>drag=null;
 C.onwheel=e=>{e.preventDefault();let f=e.deltaY<0?1.2:1/1.2;view.ox=e.offsetX-(e.offsetX-view.ox)*f;view.oy=e.offsetY-(e.offsetY-view.oy)*f;view.s*=f;draw()};
 // ---------------- generate / drafts ----------------
